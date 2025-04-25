@@ -1,0 +1,14 @@
+[Unit]
+Description=Graystone Live Trader
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/gs/grayst0-live-trader
+EnvironmentFile=/etc/default/gs-trader
+ExecStart=/opt/gs/grayst0-live-trader/venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
