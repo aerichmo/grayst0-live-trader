@@ -7,7 +7,8 @@ on:
     paths-ignore:
       - '**/*.md'
 
-permissions:               # required for auth action
+# Required for google-github-actions/auth
+permissions:
   contents: read
   id-token: write
 
@@ -15,60 +16,66 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: grayst0
+      PROJECT_ID: grayst0           # leave as-is
       VM_NAME: gs-live-trader
       VM_ZONE: us-central1-a
       SA_NAME: gs-trader
 
     steps:
+    # ────────────────────────────────
     - name: ⬇️  Checkout repo
       uses: actions/checkout@v4
 
-    # ── 1. Authenticate to Google Cloud ────────────────────────────────
+    # 1️⃣ Authenticate to Google Cloud
+    # ────────────────────────────────
     - name: 🔐  Auth to GCP
       id: auth
       uses: google-github-actions/auth@v1
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-    # ── 2. Install gcloud CLI ──────────────────────────────────────────
-    - name: 🛠️  Set up gcloud
-      uses: google-github-actions/setup-gcloud@v2
-      with:
-        project_id: ${{ env.PROJECT_ID }}
-
-    # ── 3. Enable core APIs ────────────────────────────────────────────
-    - name: ⚙️  Enable Cloud APIs
+    # 2️⃣ Enable all required Cloud APIs
+    # ────────────────────────────────
+    - name: ⚙️  Enable core Cloud APIs
       run: |
         gcloud services enable \
+          iam.googleapis.com \
           compute.googleapis.com \
           bigquery.googleapis.com \
           secretmanager.googleapis.com \
           logging.googleapis.com
 
-    # ── 4. Create / patch service-account ──────────────────────────────
+    # 3️⃣ Create (or confirm) the trading service-account
+    # ────────────────────────────────
     - name: 👤  Ensure service-account
       run: |
-        gcloud iam service-accounts list --format='value(email)' \
+        gcloud iam service-accounts list \
+          --format='value(email)' \
           --filter="email:${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
-          || gcloud iam service-accounts create "${SA_NAME}" \
-               --display-name="Graystone Trader"
+        || gcloud iam service-accounts create "${SA_NAME}" \
+             --display-name="Graystone Trader"
 
-    - name: 🗝️  Grant BigQuery role
+    # 4️⃣ Grant BigQuery role
+    # ────────────────────────────────
+    - name: 🗝️  Grant BigQuery dataEditor
       run: |
         gcloud projects add-iam-policy-binding "$PROJECT_ID" \
           --member="serviceAccount:${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
           --role="roles/bigquery.dataEditor" || true
 
-    # ── 5. Push Tradier secrets to Secret Manager ──────────────────────
-    - name: 🔑  Store Tradier creds
+    # 5️⃣ Push Tradier credentials into Secret Manager
+    # ────────────────────────────────
+    - name: 🔑  Store Tradier secrets
       run: |
         printf '%s' '${{ secrets.TRADIER_TOKEN }}' | \
-          gcloud secrets create tradier-token --replication-policy=automatic --data-file=- || true
+          gcloud secrets create tradier-token \
+            --replication-policy=automatic --data-file=- || true
         printf '%s' '${{ secrets.TRADIER_ACCT }}' | \
-          gcloud secrets create tradier-acct  --replication-policy=automatic --data-file=- || true
+          gcloud secrets create tradier-acct \
+            --replication-policy=automatic --data-file=- || true
 
-    # ── 6. BigQuery dataset & tables ───────────────────────────────────
+    # 6️⃣ BigQuery dataset & tables (idempotent)
+    # ────────────────────────────────
     - name: 🗄️  BigQuery schema
       run: |
         bq --location=US mk -d --if_not_exists us_trading
@@ -81,16 +88,19 @@ jobs:
           ts TIMESTAMP, symbol STRING, reason STRING, snapshot JSON );
         SQL
 
-    # ── 7. VM creation / patch ─────────────────────────────────────────
-    - name: 🖥️  Ensure Compute VM
+    # 7️⃣ Create (or reuse) the compute VM
+    # ────────────────────────────────
+    - name: 🖥️  Ensure compute VM
       run: |
-        gcloud compute instances describe "$VM_NAME" --zone "$VM_ZONE" \
-          --format='value(name)' 2>/dev/null || \
-        gcloud compute instances create "$VM_NAME" \
-          --zone="$VM_ZONE" --machine-type=e2-standard-2 \
-          --service-account="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
-          --scopes=https://www.googleapis.com/auth/cloud-platform \
-          --metadata-from-file startup-script=deploy/startup.sh
+        gcloud compute instances describe "$VM_NAME" \
+          --zone "$VM_ZONE" --format='value(name)' 2>/dev/null \
+        || gcloud compute instances create "$VM_NAME" \
+             --zone="$VM_ZONE" --machine-type=e2-standard-2 \
+             --service-account="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
+             --scopes=https://www.googleapis.com/auth/cloud-platform \
+             --metadata-from-file startup-script=deploy/startup.sh
 
+    # 8️⃣ All done
+    # ────────────────────────────────
     - name: ✅  Finished
       run: echo "🎉 GCP bootstrap complete"
