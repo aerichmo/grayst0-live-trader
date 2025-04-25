@@ -7,8 +7,7 @@ on:
     paths-ignore:
       - '**/*.md'
 
-# Required for google-github-actions/auth
-permissions:
+permissions:          # required for google-github-actions/auth
   contents: read
   id-token: write
 
@@ -16,7 +15,7 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     env:
-      PROJECT_ID: grayst0           # leave as-is
+      PROJECT_ID: grayst0
       VM_NAME: gs-live-trader
       VM_ZONE: us-central1-a
       SA_NAME: gs-trader
@@ -26,7 +25,7 @@ jobs:
     - name: ⬇️  Checkout repo
       uses: actions/checkout@v4
 
-    # 1️⃣ Authenticate to Google Cloud
+    # 1️⃣ Authenticate with GCP
     # ────────────────────────────────
     - name: 🔐  Auth to GCP
       id: auth
@@ -34,9 +33,9 @@ jobs:
       with:
         credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-    # 2️⃣ Enable all required Cloud APIs
+    # 2️⃣ Enable required APIs
     # ────────────────────────────────
-    - name: ⚙️  Enable core Cloud APIs
+    - name: ⚙️  Enable Cloud APIs
       run: |
         gcloud services enable \
           iam.googleapis.com \
@@ -45,7 +44,7 @@ jobs:
           secretmanager.googleapis.com \
           logging.googleapis.com
 
-    # 3️⃣ Create (or confirm) the trading service-account
+    # 3️⃣ Ensure service-account exists
     # ────────────────────────────────
     - name: 👤  Ensure service-account
       run: |
@@ -63,7 +62,7 @@ jobs:
           --member="serviceAccount:${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com" \
           --role="roles/bigquery.dataEditor" || true
 
-    # 5️⃣ Push Tradier credentials into Secret Manager
+    # 5️⃣ Push Tradier credentials to Secret Manager
     # ────────────────────────────────
     - name: 🔑  Store Tradier secrets
       run: |
@@ -74,11 +73,15 @@ jobs:
           gcloud secrets create tradier-acct \
             --replication-policy=automatic --data-file=- || true
 
-    # 6️⃣ BigQuery dataset & tables (idempotent)
+    # 6️⃣ BigQuery dataset & tables
     # ────────────────────────────────
     - name: 🗄️  BigQuery schema
       run: |
-        bq --location=US mk -d --if_not_exists us_trading
+        # create dataset only if it doesn't exist
+        if ! bq ls --format=csv | grep -q '^us_trading,' ; then
+          bq --location=US mk -d us_trading
+        fi
+
         bq query --use_legacy_sql=false <<'SQL'
         CREATE TABLE IF NOT EXISTS grayst0.us_trading.trade_log (
           ts TIMESTAMP, symbol STRING, side STRING, qty INT64,
