@@ -1,4 +1,4 @@
-import os, time, json, logging, requests, yaml
+import os, time, logging, requests, yaml
 
 LOG = logging.getLogger("Engine")
 LOG.setLevel(logging.INFO)
@@ -10,7 +10,7 @@ RULE_PATH = os.path.join(os.path.dirname(__file__), "..", "graystone_rules.yaml"
 
 def load_rules():
     with open(RULE_PATH, "r") as f:
-        yaml.safe_load(f)  # we don’t use it yet—just prove it parses
+        yaml.safe_load(f)
     LOG.info("YAML v1.0 loaded")
 
 def tradier_auth_ok():
@@ -20,13 +20,13 @@ def tradier_auth_ok():
         LOG.error("Tradier creds missing")
         return False
     r = requests.get(
-        f"https://api.tradier.com/v1/markets/clock",
+        "https://api.tradier.com/v1/markets/clock",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         timeout=5,
     )
-    good = r.status_code == 200
-    LOG.info("Tradier authenticated %s", "OK" if good else f"FAIL ({r.status_code})")
-    return good
+    ok = r.status_code == 200
+    LOG.info("Tradier authenticated %s", "OK" if ok else f"FAIL ({r.status_code})")
+    return ok
 
 def heartbeat_loop():
     load_rules()
