@@ -1,4 +1,3 @@
-print("Graystone trader stub running — replace with real engine soon.")
-import time
-while True:
-    time.sleep(60)
+from engine import heartbeat_loop
+if __name__ == "__main__":
+    heartbeat_loop()
