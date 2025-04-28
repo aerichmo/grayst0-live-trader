@@ -7,11 +7,12 @@ POLYGON = os.getenv("POLYGON_API_KEY")
 TRADIER = os.getenv("TRADIER_TOKEN")
 ACCOUNT = os.getenv("ACCOUNT_ID")
 
+# ---------- helpers -------------------------------------------------
 def _opening_range(symbol):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     r = requests.get(
         f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/minute/{today}/{today}",
-        params={"adjusted":"true","limit":"5","apiKey": POLYGON},
+        params={"adjusted": "true", "limit": "5", "apiKey": POLYGON},
         timeout=4,
     )
     if r.status_code != 200:
@@ -22,16 +23,18 @@ def _opening_range(symbol):
         LOG.info("%s No minute bars yet – skip", symbol)
         return None, None
     bars = data["results"][:5]
-    low  = min(b["l"] for b in bars)
+    low = min(b["l"] for b in bars)
     high = max(b["h"] for b in bars)
     return low, high
 
+# ---------- main decision path -------------------------------------
 def trade(symbol):
     if not (POLYGON and TRADIER and ACCOUNT):
-        LOG.error("Missing API creds"); return
+        LOG.error("Missing API creds")
+        return
 
     low, high = _opening_range(symbol)
-    if low is None:   # no data yet
+    if low is None:  # no data yet
         return
 
     gap_pct = (high - low) / low * 100
@@ -39,7 +42,9 @@ def trade(symbol):
         LOG.info("%s gap %.2f%% < 4 — skip", symbol, gap_pct)
         return
 
-    if not sp.passes(symbol): return
-    if not dv.passes(symbol): return
+    if not sp.passes(symbol):
+        return
+    if not dv.passes(symbol):
+        return
 
     LOG.info("%s PASSED Enhanced-Plus filters — would place order here", symbol)
