@@ -2,13 +2,13 @@ import datetime, logging, os, requests
 import filters.spread_filter as sp
 import filters.dollar_vol_filter as dv
 
-LOG = logging.getLogger("Strategy.Gap")
-POLYGON = os.getenv("POLYGON_API_KEY")
-TRADIER = os.getenv("TRADIER_TOKEN")
-ACCOUNT = os.getenv("ACCOUNT_ID")
+LOG      = logging.getLogger("Strategy.Gap")
+POLYGON  = os.getenv("POLYGON_API_KEY")
+TRADIER  = os.getenv("TRADIER_TOKEN")
+ACCOUNT  = os.getenv("ACCOUNT_ID")
 
 # ---------- helpers -------------------------------------------------
-def _opening_range(symbol):
+def _opening_range(symbol: str):
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     r = requests.get(
         f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/minute/{today}/{today}",
@@ -23,18 +23,18 @@ def _opening_range(symbol):
         LOG.info("%s No minute bars yet – skip", symbol)
         return None, None
     bars = data["results"][:5]
-    low = min(b["l"] for b in bars)
+    low  = min(b["l"] for b in bars)
     high = max(b["h"] for b in bars)
     return low, high
 
 # ---------- main decision path -------------------------------------
-def trade(symbol):
+def trade(symbol: str):
     if not (POLYGON and TRADIER and ACCOUNT):
         LOG.error("Missing API creds")
         return
 
     low, high = _opening_range(symbol)
-    if low is None:  # no data yet
+    if low is None:        # still waiting for data
         return
 
     gap_pct = (high - low) / low * 100
