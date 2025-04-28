@@ -5,6 +5,10 @@ import filters.dollar_vol_filter as dv
 LOG      = logging.getLogger("Strategy.Gap")
 POLYGON  = os.getenv("POLYGON_API_KEY")
 LOG.setLevel(logging.INFO)
+if not LOG.handlers:
+    h = logging.StreamHandler();
+    h.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"));
+    LOG.addHandler(h)
 TRADIER  = os.getenv("TRADIER_TOKEN")
 ACCOUNT  = os.getenv("ACCOUNT_ID")
 
