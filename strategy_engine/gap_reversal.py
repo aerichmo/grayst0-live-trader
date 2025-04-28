@@ -1,6 +1,7 @@
 import datetime, logging, os, requests
 import filters.spread_filter as sp
 import filters.dollar_vol_filter as dv
+from risk.manager import shares, TRADIER_TOKEN, ACCOUNT_ID
 
 LOG      = logging.getLogger("Strategy.Gap")
 POLYGON  = os.getenv("POLYGON_API_KEY")
