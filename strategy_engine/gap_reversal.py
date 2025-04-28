@@ -4,6 +4,7 @@ import filters.dollar_vol_filter as dv
 
 LOG      = logging.getLogger("Strategy.Gap")
 POLYGON  = os.getenv("POLYGON_API_KEY")
+LOG.setLevel(logging.INFO)
 TRADIER  = os.getenv("TRADIER_TOKEN")
 ACCOUNT  = os.getenv("ACCOUNT_ID")
 
