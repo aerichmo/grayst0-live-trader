@@ -8,7 +8,7 @@ if not LOG.handlers:
 
     LOG.addHandler(h)
 
-def top_gappers(limit=50, min_gap=0.1):
+def top_gappers(limit=50, min_gap=4.0):
     key = os.getenv("POLYGON_API_KEY")
     if not key: raise RuntimeError("POLYGON_API_KEY missing")
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
