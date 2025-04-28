@@ -1,6 +1,7 @@
 import datetime, logging, os, requests
 import filters.spread_filter as sp
 import filters.dollar_vol_filter as dv
+from risk.manager import shares, TRADIER_TOKEN, ACCOUNT_ID
 
 LOG      = logging.getLogger("Strategy.Gap")
 POLYGON  = os.getenv("POLYGON_API_KEY")
@@ -32,11 +33,40 @@ def _opening_range(symbol: str):
     high = max(b["h"] for b in bars)
     return low, high
 
+
 # ---------- main decision path -------------------------------------
 def trade(symbol: str):
-    if not (POLYGON and TRADIER and ACCOUNT):
-        LOG.error("Missing API creds")
+    if not (POLYGON and TRADIER_TOKEN and ACCOUNT):
+        LOG.error("Missing API creds"); return
+
+    low, high = _opening_range(symbol)
+    if low is None:                       # still waiting for data
         return
+
+    gap_pct = (high - low) / low * 100
+    if gap_pct < 4:                     # TEMP threshold
+        LOG.info("%s gap %.2f%% < 0.1 — skip", symbol, gap_pct)
+        return
+
+    if not sp.passes(symbol): return
+    if not dv.passes(symbol): return
+
+    entry, stop = high, low
+    qty = shares(entry, stop)
+    if qty < 1:
+        LOG.info("%s Sizing <1 share — skip", symbol); return
+
+    payload = {
+        "class":"equity","symbol":symbol,"side":"buy","quantity":qty,
+        "type":"market","duration":"day","preview":"true"
+    }
+    r = requests.post(
+        f"https://api.tradier.com/v1/accounts/{ACCOUNT_ID}/orders",
+        headers={"Authorization":f"Bearer {TRADIER_TOKEN}",
+                 "Accept":"application/json"},
+        data=payload, timeout=4)
+    LOG.info("%s Risk-%dsh PREVIEW %s", symbol, qty, r.text[:60])
+
 
     low, high = _opening_range(symbol)
     if low is None:        # still waiting for data
@@ -44,7 +74,7 @@ def trade(symbol: str):
 
     gap_pct = (high - low) / low * 100
     if gap_pct < 4:
-        LOG.info("%s gap %.2f%% < 4 — skip", symbol, gap_pct)
+        LOG.info("%s gap %.2f%% < 0.1 — skip", symbol, gap_pct)
         return
 
     if not sp.passes(symbol):
