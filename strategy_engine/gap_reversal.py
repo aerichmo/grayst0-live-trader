@@ -43,6 +43,7 @@ def trade(symbol):
 
     low, high = _opening_range(symbol)
     if low is None: return
+    if low is None: return
     gap_pct = (high - low) / low * 100
     if gap_pct < 4:
         LOG.info("%s gap %.2f%% < 4 — skip", symbol, gap_pct)
