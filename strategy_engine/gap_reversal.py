@@ -45,7 +45,7 @@ def trade(symbol: str):
 
     gap_pct = (high - low) / low * 100
     if gap_pct < 0.1:
-        LOG.info("%s gap %.2f%% < 4 — skip", symbol, gap_pct)
+        LOG.info("%s gap %.2f%% < 0.1 — skip", symbol, gap_pct)
         return
 
     if not sp.passes(symbol):
