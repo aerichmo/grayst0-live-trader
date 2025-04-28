@@ -7,7 +7,7 @@ POLYGON  = os.getenv("POLYGON_API_KEY")
 LOG.setLevel(logging.INFO)
 if not LOG.handlers:
     h = logging.StreamHandler();
-    h.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"));
+    h.setFormatter(logging.Formatter("[%(asctime)s] %(name)s %(message)s"));
     LOG.addHandler(h)
 TRADIER  = os.getenv("TRADIER_TOKEN")
 ACCOUNT  = os.getenv("ACCOUNT_ID")
