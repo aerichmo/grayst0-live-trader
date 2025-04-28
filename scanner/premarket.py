@@ -1,5 +1,12 @@
 import os, datetime, requests, logging
 LOG = logging.getLogger("Scanner.Premarket")
+LOG.setLevel(logging.INFO)
+
+if not LOG.handlers:
+
+    h=logging.StreamHandler();h.setFormatter(logging.Formatter("[%(asctime)s] %(name)s %(message)s"));
+
+    LOG.addHandler(h)
 
 def top_gappers(limit=50, min_gap=4.0):
     key = os.getenv("POLYGON_API_KEY")
