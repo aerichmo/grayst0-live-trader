@@ -3,8 +3,11 @@ LOG = logging.getLogger("Filter.Spread")
 
 def passes(symbol):
     token = os.getenv("TRADIER_TOKEN")
+    if not token:
+        LOG.error("TRADIER_TOKEN missing"); return False
+
     r = requests.get(
-        f"https://api.tradier.com/v1/markets/quotes",
+        "https://api.tradier.com/v1/markets/quotes",
         params={"symbols": symbol},
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
         timeout=3,
