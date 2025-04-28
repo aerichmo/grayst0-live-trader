@@ -31,8 +31,8 @@ def trade(symbol):
         LOG.error("Missing API creds"); return
 
     low, high = _opening_range(symbol)
-    if low is None:
-        return                       # skip symbol until data arrives
+    if low is None:   # no data yet
+        return
 
     gap_pct = (high - low) / low * 100
     if gap_pct < 4:
