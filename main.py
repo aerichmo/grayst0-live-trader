@@ -4,7 +4,8 @@ from strategy_engine.gap_reversal import trade
 import time
 
 def scan_loop():
-    watch=["AAPL","TSLA","NIO","PLTR"]  # TEMP – replace with pre-market gappers
+    from scanner.premarket import top_gappers
+    watch = top_gappers()  # TEMP – replace with pre-market gappers
     while True:
         for sym in watch: trade(sym)
         time.sleep(300)
