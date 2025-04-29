@@ -56,16 +56,32 @@ def trade(symbol: str):
     if qty < 1:
         LOG.info("%s Sizing <1 share — skip", symbol); return
 
-    payload = {
-        "class":"equity","symbol":symbol,"side":"buy","quantity":qty,
-        "type":"market","duration":"day","preview":"true"
-    }
-    r = requests.post(
-        f"https://api.tradier.com/v1/accounts/{ACCOUNT_ID}/orders",
-        headers={"Authorization":f"Bearer {TRADIER_TOKEN}",
-                 "Accept":"application/json"},
-        data=payload, timeout=4)
-    LOG.info("%s Risk-%dsh PREVIEW %s", symbol, qty, r.text[:60])
+    live = os.getenv("TRADING_MODE", "paper").lower() == "live"\n
+    entry_payload = {\n
+        "class":"equity","symbol":symbol,"side":"buy","quantity":qty,\n
+        "type":"market","duration":"day",\n
+        "preview": "false" if live else "true"\n
+    }\n
+    r = requests.post(\n
+        f"https://api.tradier.com/v1/accounts/{ACCOUNT_ID}/orders",\n
+        headers={"Authorization":f"Bearer {TRADIER_TOKEN}",\n
+                 "Accept":"application/json"},\n
+        data=entry_payload,timeout=4)\n
+    LOG.info("%s %s order %s", symbol, "LIVE" if live else "PREVIEW", r.text[:120])\n
+\n
+    # ---- protective stop --------------------------------------------\n
+    if live:  # only place the stop in live mode\n
+        stop_price = round(low-0.05, 2)   # long side; mirror later for shorts\n
+        stop_payload = {\n
+            "class":"equity","symbol":symbol,"side":"sell","quantity":qty,\n
+            "type":"stop_market","stop":stop_price,"duration":"day"\n
+        }\n
+        r2 = requests.post(\n
+            f"https://api.tradier.com/v1/accounts/{ACCOUNT_ID}/orders",\n
+            headers={"Authorization":f"Bearer {TRADIER_TOKEN}",\n
+                     "Accept":"application/json"},\n
+            data=stop_payload,timeout=4)\n
+        LOG.info("%s STOP @ %.2f response %s", symbol, stop_price, r2.text[:120])
 
 
     low, high = _opening_range(symbol)
