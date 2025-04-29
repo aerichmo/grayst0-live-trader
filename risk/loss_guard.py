@@ -1,3 +1,5 @@
+import logging
+LOG = logging.getLogger("Risk.Circuit")
 def tripped() -> bool:
     """Return True when realised P/L for **today** is ≤ –5 % of buying power."""
     realized_pnl = 0.0                    # always defined
