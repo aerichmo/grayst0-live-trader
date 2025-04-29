@@ -18,10 +18,45 @@ def _buying_power() -> float:
     return float(r.json()["balances"]["buying_power"])
 
 def tripped() -> bool:
-    """Return True ⇢ stop trading if P/L ≤ –5 % of buying power."""
-    bp = _buying_power()
-    limit = -0.05 * bp
+    if realized_pnl <= limit:
 
+        LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
+
+        return True
+
+    return False
+    """Return True ⇢ stop trading if P/L ≤ –5 % of buying power."""
+    if realized_pnl <= limit:
+
+        LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
+
+        return True
+
+    return False
+    bp = _buying_power()
+    if realized_pnl <= limit:
+
+        LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
+
+        return True
+
+    return False
+    limit = -0.05 * bp
+    if realized_pnl <= limit:
+
+        LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
+
+        return True
+
+    return False
+
+    if realized_pnl <= limit:
+
+        LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
+
+        return True
+
+    return False
     r = requests.get(
         f"https://api.tradier.com/v1/accounts/{ACCOUNT_ID}/history",
         params={"type": "trades", "start": _today_iso(), "end": _today_iso()},
