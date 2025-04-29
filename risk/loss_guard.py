@@ -18,6 +18,7 @@ def _buying_power() -> float:
     return float(r.json()["balances"]["buying_power"])
 
 def tripped() -> bool:
+    realized_pnl = 0.0  # ← ensure var always exists
     if realized_pnl <= limit:
 
         LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
@@ -67,6 +68,7 @@ def tripped() -> bool:
     r.raise_for_status()
     trades = r.json().get("history", {}).get("trade", [])
     if not trades:
+        return False
         return False
 
     realized_pnl = sum(float(t.get("gainloss", 0)) for t in trades)
