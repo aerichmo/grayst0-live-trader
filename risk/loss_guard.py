@@ -19,6 +19,8 @@ def _buying_power() -> float:
 
 def tripped() -> bool:
     realized_pnl = 0.0  # ← ensure var always exists
+    bp = _buying_power()
+    limit = -0.05 * bp
     if realized_pnl <= limit:
 
         LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
@@ -34,15 +36,6 @@ def tripped() -> bool:
         return True
 
     return False
-    bp = _buying_power()
-    if realized_pnl <= limit:
-
-        LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
-
-        return True
-
-    return False
-    limit = -0.05 * bp
     if realized_pnl <= limit:
 
         LOG.warning("Circuit tripped: %+.0f vs limit %.0f", realized_pnl, limit)
