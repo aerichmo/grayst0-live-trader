@@ -1,0 +1,24 @@
+steps:
+# 1 – Build a minimal image with requirements installed
+- name: gcr.io/cloud-builders/docker
+  args: [ 'build', '.', '-t', 'gcr.io/$PROJECT_ID/trader:$COMMIT_SHA' ]
+
+# 2 – Deploy that commit on the VM
+- name: gcr.io/cloud-builders/gcloud
+  entrypoint: /bin/bash
+  args:
+    - -c
+    - |
+      gcloud compute ssh gs-live-trader \
+        --zone us-central1-a \
+        --command "
+          set -e
+          cd /opt/gs/grayst0-live-trader
+          git fetch origin
+          git reset --hard \$COMMIT_SHA
+          sudo systemctl restart gs-trader
+        "
+
+timeout: 900s          # 15 min max
+options:
+  logging: CLOUD_LOGGING_ONLY
