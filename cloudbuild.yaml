@@ -1,30 +1,49 @@
-steps:
-  # 1 – Build the runtime image
-  - name: gcr.io/cloud-builders/docker
-    args: [ "build", ".", "-t", "gcr.io/$PROJECT_ID/trader:$COMMIT_SHA" ]
+# ────────────────────── Cloud Build pipeline ──────────────────────
+# ① Build a lightweight image so “docker build” fails fast if code is broken.
+# ② SSH into the VM (through IAP) and deploy this exact commit.
+#    • --tunnel-through-iap lets the Cloud Build runner reach the VM
+#    • OS-Login permissions + IAP tunnel are all that’s needed; no firewall holes.
 
-  # 2 – SSH to the VM and deploy this commit
-  - name: gcr.io/cloud-builders/gcloud
-    entrypoint: /bin/bash
-    args:
-      - -euo
-      - pipefail
-      - -c
-      - |
-          gcloud compute ssh gs-live-trader \
-            --zone us-central1-a \
-            --quiet \
-            --ssh-key-expire-after=30m \
-            --ssh-flag="-o StrictHostKeyChecking=no" \
-            --command "
+substitutions:
+  # Cloud Build automatically fills COMMIT_SHA at trigger-time.
+  _COMMIT_SHA: $COMMIT_SHA
+
+steps:
+# ── 1. Docker build ────────────────────────────────────────────────
+- name: gcr.io/cloud-builders/docker
+  id: build-image
+  args:
+    [
+      "build",
+      ".",
+      "-t",
+      "gcr.io/$PROJECT_ID/trader:${_COMMIT_SHA}"
+    ]
+
+# ── 2. Deploy on the VM ────────────────────────────────────────────
+- name: gcr.io/cloud-builders/gcloud
+  id: deploy-vm
+  entrypoint: /bin/bash
+  args:
+    - -euo
+    - pipefail
+    - -c
+    - |
+        gcloud compute ssh gs-live-trader \
+          --zone us-central1-a \
+          --quiet \
+          --tunnel-through-iap \
+          --ssh-key-expire-after=30m \
+          --ssh-flag="-o StrictHostKeyChecking=no" \
+          --command "
               set -e
               cd /opt/gs/grayst0-live-trader
               git config --global --add safe.directory /opt/gs/grayst0-live-trader
               git fetch origin
-              git reset --hard \$COMMIT_SHA
+              git reset --hard ${_COMMIT_SHA}
               sudo systemctl restart gs-trader
-            "
+          "
 
-timeout: 900s
+timeout: 900s        # 15 min
 options:
   logging: CLOUD_LOGGING_ONLY
