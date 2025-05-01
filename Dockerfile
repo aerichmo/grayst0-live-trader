@@ -1,20 +1,20 @@
-# ---- base image ----
+# ───────── base image ──────────
 FROM python:3.11-slim
 
-# Prevent Python from buffering stdout/stderr
-ENV PYTHONUNBUFFERED=1
-
-# Install any OS-level libs you might eventually need
+# ───────── system deps (git, build-essentials) ──────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git build-essential && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+        git build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy code and install Python deps (if you have requirements.txt)
+# ───────── app workspace ──────────
 WORKDIR /app
-COPY requirements.txt ./        # safe even if file doesn’t exist
+
+# requirements.txt might be empty in early phases – that’s OK
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt || true
 
-# Copy the rest of the repo
+# copy the rest of the source tree
 COPY . .
 
-CMD [ "python", "-m", "pip", "list" ]  # trivial default command
+# ───────── default test / sanity-check command ──────────
+CMD ["python", "-m", "pytest", "-q"]
