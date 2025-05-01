@@ -15,7 +15,7 @@ steps:
           set -e
           cd /opt/gs/grayst0-live-trader
           git fetch origin
-          git reset --hard \$COMMIT_SHA
+          git reset --hard \$$COMMIT_SHA
           sudo systemctl restart gs-trader
         "
 
