@@ -1,49 +1,57 @@
-steps:
-# 1 – build+test inside a disposable python:3.11 image
-- id: build-test-image
-  name: python:3.11-slim
-  entrypoint: bash
-  args:
-    - -eux
-    - |
-      apt-get update && apt-get install -y --no-install-recommends git build-essential && \
-        rm -rf /var/lib/apt/lists/*
-      mkdir -p /app && cd /app
-      cp /workspace/requirements.txt .
-      pip install --no-cache-dir -r requirements.txt pytest
-      cp -r /workspace/* .
-      pytest -q tests/smoke/
-
-# 2 – package & upload “latest” sandbox artifact
-- id: pack-and-upload
-  name: gcr.io/cloud-builders/gsutil
-  entrypoint: bash
-  args:
-    - -eux
-    - |
-      tar czf /workspace/latest.tgz --exclude='.git' /workspace
-      echo "$SHORT_SHA" > /workspace/VERSION
-      gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
-      gsutil cp /workspace/VERSION  gs://grayst0-deploy/VERSION
-
-# 3 – gate prod promotion on sandbox smoke-pass
-- id: promote-if-pass
-  name: gcr.io/cloud-builders/gsutil
-  entrypoint: bash
-  args:
-    - -eux
-    - |
-      for i in {1..30}; do
-        if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
-           | grep -q "$SHORT_SHA"; then
-          echo "✔ sandbox smoke passed for $SHORT_SHA" && break
-        fi
-        sleep 10
-      done
-      # once we see it, promote
-      gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-      echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
-
+cat > cloudbuild.yaml <<'EOF'
+# ──────────────────────────  Cloud Build pipeline  ──────────────────────────
 timeout: "1200s"
 options:
   logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _ARTIFACT_BUCKET: gs://grayst0-deploy
+
+steps:
+  # 1. run smoke tests inside python:3.11-slim
+  - name: python:3.11-slim
+    id: run-tests
+    entrypoint: bash
+    args:
+      - -euxc
+      - |
+        pip install --no-cache-dir -r requirements.txt pytest
+        pytest -q tests/smoke
+
+  # 2. (optional) local Docker build
+  - name: gcr.io/cloud-builders/docker
+    id: build-image
+    args: ["build", "-t", "local/grayst0-test:$SHORT_SHA", "."]
+
+  # 3. pack workspace → gs://grayst0-deploy/latest.tgz
+  - name: gcr.io/cloud-builders/gsutil
+    id: pack-and-upload
+    entrypoint: bash
+    args:
+      - -euxc
+      - |
+        TAR=/workspace/latest.tgz
+        tar --exclude=.git -czf "$TAR" .
+        echo "$SHORT_SHA" > /workspace/VERSION
+        gsutil cp "$TAR"            ${_ARTIFACT_BUCKET}/latest.tgz
+        gsutil cp /workspace/VERSION ${_ARTIFACT_BUCKET}/VERSION
+
+  # 4. promote only after sandbox writes matching SMOKE_PASS
+  - name: gcr.io/cloud-builders/gsutil
+    id: promote-if-pass
+    entrypoint: bash
+    args:
+      - -euxc
+      - |
+        for n in {1..30}; do
+          if gsutil cat ${_ARTIFACT_BUCKET}/SMOKE_PASS 2>/dev/null \
+               | grep -q "$SHORT_SHA"; then
+            break
+          fi
+          sleep 10
+        done
+        gsutil cat ${_ARTIFACT_BUCKET}/SMOKE_PASS | grep "$SHORT_SHA"
+        gsutil cp  ${_ARTIFACT_BUCKET}/latest.tgz \
+                   ${_ARTIFACT_BUCKET}/latest.tgz-prod
+        echo "$SHORT_SHA" \
+          | gsutil cp - ${_ARTIFACT_BUCKET}/VERSION-prod
+EOF
