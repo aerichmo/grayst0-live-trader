@@ -1,57 +1,42 @@
-cat > cloudbuild.yaml <<'EOF'
-# ──────────────────────────  Cloud Build pipeline  ──────────────────────────
-timeout: "1200s"
-options:
-  logging: CLOUD_LOGGING_ONLY
-substitutions:
-  _ARTIFACT_BUCKET: gs://grayst0-deploy
-
 steps:
-  # 1. run smoke tests inside python:3.11-slim
-  - name: python:3.11-slim
-    id: run-tests
+  # 1 — build a tiny image and run the smoke tests
+  - id: build-test-image
+    name: python:3.11-slim
     entrypoint: bash
     args:
       - -euxc
       - |
-        pip install --no-cache-dir -r requirements.txt pytest
-        pytest -q tests/smoke
+        pip install --no-cache-dir -r requirements.txt
+        python -m pytest -q tests/smoke/
 
-  # 2. (optional) local Docker build
-  - name: gcr.io/cloud-builders/docker
-    id: build-image
-    args: ["build", "-t", "local/grayst0-test:$SHORT_SHA", "."]
-
-  # 3. pack workspace → gs://grayst0-deploy/latest.tgz
-  - name: gcr.io/cloud-builders/gsutil
-    id: pack-and-upload
+  # 2 — bundle the workspace and drop it in the sandbox bucket
+  - id: pack-and-upload
+    name: gcr.io/cloud-builders/gsutil
     entrypoint: bash
     args:
       - -euxc
       - |
-        TAR=/workspace/latest.tgz
-        tar --exclude=.git -czf "$TAR" .
+        tar -czf /workspace/latest.tgz --exclude=.git .
         echo "$SHORT_SHA" > /workspace/VERSION
-        gsutil cp "$TAR"            ${_ARTIFACT_BUCKET}/latest.tgz
-        gsutil cp /workspace/VERSION ${_ARTIFACT_BUCKET}/VERSION
+        gsutil -q cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
+        gsutil -q cp /workspace/VERSION    gs://grayst0-deploy/VERSION
 
-  # 4. promote only after sandbox writes matching SMOKE_PASS
-  - name: gcr.io/cloud-builders/gsutil
-    id: promote-if-pass
+  # 3 — wait (≤ 5 min) until the sandbox writes SMOKE_PASS ‹sha›, then promote
+  - id: promote-if-pass
+    name: gcr.io/cloud-builders/gsutil
     entrypoint: bash
     args:
       - -euxc
       - |
-        for n in {1..30}; do
-          if gsutil cat ${_ARTIFACT_BUCKET}/SMOKE_PASS 2>/dev/null \
-               | grep -q "$SHORT_SHA"; then
-            break
-          fi
+        for i in {1..30}; do
+          gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA" && break
           sleep 10
         done
-        gsutil cat ${_ARTIFACT_BUCKET}/SMOKE_PASS | grep "$SHORT_SHA"
-        gsutil cp  ${_ARTIFACT_BUCKET}/latest.tgz \
-                   ${_ARTIFACT_BUCKET}/latest.tgz-prod
-        echo "$SHORT_SHA" \
-          | gsutil cp - ${_ARTIFACT_BUCKET}/VERSION-prod
-EOF
+        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep "$SHORT_SHA"
+        gsutil -q cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
+        echo "$SHORT_SHA" | gsutil -q cp - gs://grayst0-deploy/VERSION-prod
+
+timeout: "1800s"
+options:
+  logging: CLOUD_LOGGING_ONLY
+YAML
