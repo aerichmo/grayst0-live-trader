@@ -1,39 +1,14 @@
 steps:
-# ─────────────────────────────────────────────────────────────
-# 1 ─ Build a slim image that has Python + requirements
-# ─────────────────────────────────────────────────────────────
-- name: gcr.io/cloud-builders/docker
-  args:
-  - build
-  - .
-  - -t
-  - gcr.io/$PROJECT_ID/trader:$COMMIT_SHA
-
-# ─────────────────────────────────────────────────────────────
-# 2 ─ Deploy that exact commit to the gs-live-trader VM
-# ─────────────────────────────────────────────────────────────
-- name: gcr.io/cloud-builders/gcloud
-  entrypoint: /bin/bash
-  args:
-  - -euo
-  - pipefail
-  - -c
-  - |
-      gcloud compute ssh gs-live-trader \
-        --zone us-central1-a \
-        --quiet \
-        --tunnel-through-iap \            # <─ IAP tunnel needed from Cloud Build
-        --ssh-key-expire-after=30m \
-        --ssh-flag="-o StrictHostKeyChecking=no" \
-        --command "
-          set -e
-          cd /opt/gs/grayst0-live-trader
-          git config --global --add safe.directory /opt/gs/grayst0-live-trader
-          git fetch origin
-          git reset --hard \$COMMIT_SHA
-          sudo systemctl restart gs-trader
-        "
-
-timeout: 900s     # 15 min
-options:
-  logging: CLOUD_LOGGING_ONLY
+  - name: gcr.io/cloud-builders/gsutil
+    entrypoint: /bin/bash
+    args:
+      - -eu
+      - -c
+      - |
+        TAR="deploy-\$COMMIT_SHA.tgz"
+        git archive --format=tar.gz -o "\$TAR" --prefix=app/ \$COMMIT_SHA
+        gsutil cp "\$TAR" gs://grayst0-deploy/
+substitutions:
+  _COMMIT_SHA: ${REVISION_ID}
+timeout: 300s
+options: {logging: CLOUD_LOGGING_ONLY}
