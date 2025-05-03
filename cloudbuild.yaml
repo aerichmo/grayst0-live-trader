@@ -1,1 +1,49 @@
-#  ⇣  paste the YAML above here  ⇣
+steps:
+# 1 – build+test inside a disposable python:3.11 image
+- id: build-test-image
+  name: python:3.11-slim
+  entrypoint: bash
+  args:
+    - -eux
+    - |
+      apt-get update && apt-get install -y --no-install-recommends git build-essential && \
+        rm -rf /var/lib/apt/lists/*
+      mkdir -p /app && cd /app
+      cp /workspace/requirements.txt .
+      pip install --no-cache-dir -r requirements.txt pytest
+      cp -r /workspace/* .
+      pytest -q tests/smoke/
+
+# 2 – package & upload “latest” sandbox artifact
+- id: pack-and-upload
+  name: gcr.io/cloud-builders/gsutil
+  entrypoint: bash
+  args:
+    - -eux
+    - |
+      tar czf /workspace/latest.tgz --exclude='.git' /workspace
+      echo "$SHORT_SHA" > /workspace/VERSION
+      gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
+      gsutil cp /workspace/VERSION  gs://grayst0-deploy/VERSION
+
+# 3 – gate prod promotion on sandbox smoke-pass
+- id: promote-if-pass
+  name: gcr.io/cloud-builders/gsutil
+  entrypoint: bash
+  args:
+    - -eux
+    - |
+      for i in {1..30}; do
+        if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
+           | grep -q "$SHORT_SHA"; then
+          echo "✔ sandbox smoke passed for $SHORT_SHA" && break
+        fi
+        sleep 10
+      done
+      # once we see it, promote
+      gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
+      echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+
+timeout: "1200s"
+options:
+  logging: CLOUD_LOGGING_ONLY
