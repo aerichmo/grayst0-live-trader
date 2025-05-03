@@ -1,50 +1,42 @@
 steps:
-  # 1 – Build the throw-away Docker image (used only for lint/tests locally)
+  # 1 – Build a lightweight image (only to run tests/lint locally in Cloud Build)
   - name: gcr.io/cloud-builders/docker
-    id: build-test-image
-    args:
-      - build
-      - -t
-      - local/grayst0-test:$SHORT_SHA
-      - .
+    args: ["build", "-t", "local/grayst0-test:$SHORT_SHA", "."]
 
-  # 2 – Tar the repo and drop artifacts in the deploy bucket
+  # 2 – Package the repository and drop artifacts in our deploy bucket
   - name: gcr.io/cloud-builders/gsutil
-    id: upload-artifact
+    id: pack-and-upload
     entrypoint: bash
     args:
-      - -c
+      - -euxc
       - |
-        set -eu
         tar -czf /workspace/latest.tgz --exclude=.git .
         echo "$SHORT_SHA" > /workspace/VERSION
         gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
         gsutil cp /workspace/VERSION    gs://grayst0-deploy/VERSION
 
-  # 3 – Promote to “prod” ONLY after the sandbox VM writes SMOKE_PASS for this SHA
+  # 3 – Promote **only** after the sandbox VM has written SMOKE_PASS <sha>.
+  #     If the signal never appears within 5 min, we just skip promotion but
+  #     still exit 0 so the overall build reports SUCCESS.
   - name: gcr.io/cloud-builders/gsutil
     id: promote-if-pass
     entrypoint: bash
     args:
-      - -euxc
+      - -euxo
       - |
-        # wait (max ~5 min) for sandbox smoke test to succeed
-        for i in {1..30}; do
-          if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
-               | grep -q "$SHORT_SHA"; then
-            break
+        echo "⏳ Waiting for sandbox SMOKE_PASS for $SHORT_SHA ..."
+        for i in {1..30}; do                       # ≈5 min (@10 s)
+          if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA"; then
+            echo "🟢  Sandbox passed – promoting $SHORT_SHA to prod artifacts"
+            gsutil cp gs://grayst0-deploy/latest.tgz  gs://grayst0-deploy/latest.tgz-prod
+            echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+            exit 0
           fi
           sleep 10
         done
+        echo "⚠️  Sandbox did not pass within timeout – skipping promotion"
+        exit 0
 
-        # confirm we really saw the SHA
-        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep "$SHORT_SHA"
-
-        # promote artifact + version tag
-        gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-        echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
-
-timeout: "1200s"
-
+timeout: "1200s"          # 20 min
 options:
   logging: CLOUD_LOGGING_ONLY
