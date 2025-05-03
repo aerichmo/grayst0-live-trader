@@ -1,14 +1,20 @@
 steps:
+  # 1 – Build the Docker image (for tests / linting only)
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "gcr.io/$PROJECT_ID/grayst0-test:$SHORT_SHA", "."]
+
+  # 2 – Package the repo and drop artifacts in the deploy bucket
   - name: gcr.io/cloud-builders/gsutil
-    entrypoint: /bin/bash
+    entrypoint: bash
     args:
-      - -eu
       - -c
       - |
-        TAR="deploy-\$COMMIT_SHA.tgz"
-        git archive --format=tar.gz -o "\$TAR" --prefix=app/ \$COMMIT_SHA
-        gsutil cp "\$TAR" gs://grayst0-deploy/
-substitutions:
-  _COMMIT_SHA: ${REVISION_ID}
-timeout: 300s
-options: {logging: CLOUD_LOGGING_ONLY}
+        tar -czf /workspace/latest.tgz --exclude=.git .
+        echo "$SHORT_SHA" > /workspace/VERSION
+        gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
+        gsutil cp /workspace/VERSION    gs://grayst0-deploy/VERSION
+
+images:
+  - "gcr.io/$PROJECT_ID/grayst0-test:$SHORT_SHA"
+
+timeout: "1200s"
