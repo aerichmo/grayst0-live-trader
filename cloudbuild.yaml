@@ -1,62 +1,61 @@
-# ─────────────── substitutions usable in steps ───────────────
-substitutions:
-  _IMAGE_TAG: local/grayst0-test:$SHORT_SHA
-
-# ─────────────── build steps ───────────────
 steps:
-  # 0) Build a minimal test image that can run pytest quickly
+  #######################################################################
+  # 1 ▸ Build a lightweight test image and run the unit / smoke tests  #
+  #######################################################################
   - name: gcr.io/cloud-builders/docker
     id: build-test-image
     args:
-      - build
-      - -t
-      - ${_IMAGE_TAG}
-      - .
-    # Keep the image only for this build; we’re not pushing it anywhere.
+      [ 'build', '-t', 'local/grayst0-test:${SHORT_SHA}', '.' ]
 
-  # 1) Pack repo → GCS (artifact + VERSION)
+  - name: local/grayst0-test:${SHORT_SHA}
+    id: run-tests
+    entrypoint: python
+    args: [ '-m', 'pytest', '-q' ]          # exits 0 on pass, 1 on fail
+
+  #######################################################################
+  # 2 ▸ Pack the work-space, avoiding “file changed as we read it” bug  #
+  #######################################################################
   - name: gcr.io/cloud-builders/gsutil
     id: pack-and-upload
     entrypoint: bash
     args:
       - -euxc
       - |
-        # make an archive *without* .git and without the file we’re writing
-        tar -czf /workspace/latest.tgz \
-            --exclude=.git \
-            --exclude=latest.tgz \
-            .
+        tmp=/workspace/pkg.tgz
+        tar --exclude .git -czf "$tmp" .          # write to tmp file
+        mv "$tmp" /workspace/latest.tgz           # atomic rename
 
         echo "$SHORT_SHA" > /workspace/VERSION
-        gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
-        gsutil cp /workspace/VERSION    gs://grayst0-deploy/VERSION
+        gsutil -q cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
+        gsutil -q cp /workspace/VERSION    gs://grayst0-deploy/VERSION
 
-  # 2) Gate production promotion on sandbox SMOKE_PASS
+  #######################################################################
+  # 3 ▸ Promote to “-prod” only after sandbox VM writes SMOKE_PASS      #
+  #######################################################################
   - name: gcr.io/cloud-builders/gsutil
     id: promote-if-pass
     entrypoint: bash
     args:
       - -euxc
       - |
-        # wait (up to 5 min) for sandbox to write matching hash
-        for i in {1..30}; do
-          if (gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null || true) \
+        # wait ≤5 min for SMOKE_PASS containing this SHA
+        for _ in {1..30}; do
+          if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
                | grep -q "$SHORT_SHA"; then
             break
           fi
           sleep 10
         done
 
-        # if it’s there → promote to prod
-        if gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep -q "$SHORT_SHA"; then
-          gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-          echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
-          echo "✅ Promoted $SHORT_SHA to production artifacts"
-        else
-          echo "⚠️  No SMOKE_PASS for $SHORT_SHA after 5 min - skipping promotion"
-        fi
+        # hard-fail if the SHA never appeared
+        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep "$SHORT_SHA"
 
-# ─────────────── global build options ───────────────
-timeout: "1200s"               # 20 min
+        # promote artefacts
+        gsutil -q cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
+        echo "$SHORT_SHA" | gsutil -q cp - gs://grayst0-deploy/VERSION-prod
+
+timeout: "1200s"
 options:
   logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _PY_VERSION: "3.11"
