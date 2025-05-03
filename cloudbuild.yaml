@@ -1,33 +1,50 @@
 steps:
-  # 1 – Build the Docker image locally (for tests / linting only — not pushed)
+  # 1 – Build the throw-away Docker image (used only for lint/tests locally)
   - name: gcr.io/cloud-builders/docker
-    args: ["build", "-t", "local/grayst0-test:$SHORT_SHA", "."]
+    id: build-test-image
+    args:
+      - build
+      - -t
+      - local/grayst0-test:$SHORT_SHA
+      - .
 
-  # 2 – Package the repo and drop artifacts in the deploy bucket
+  # 2 – Tar the repo and drop artifacts in the deploy bucket
   - name: gcr.io/cloud-builders/gsutil
+    id: upload-artifact
     entrypoint: bash
     args:
       - -c
       - |
+        set -eu
         tar -czf /workspace/latest.tgz --exclude=.git .
         echo "$SHORT_SHA" > /workspace/VERSION
         gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
         gsutil cp /workspace/VERSION    gs://grayst0-deploy/VERSION
 
-  # 3 – Promote only after sandbox writes SMOKE_PASS <sha>
+  # 3 – Promote to “prod” ONLY after the sandbox VM writes SMOKE_PASS for this SHA
   - name: gcr.io/cloud-builders/gsutil
     id: promote-if-pass
     entrypoint: bash
     args:
       - -euxc
       - |
+        # wait (max ~5 min) for sandbox smoke test to succeed
         for i in {1..30}; do
-          (gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null || true) | grep -q \"$SHORT_SHA\" \\
-            && break || sleep 10
+          if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
+               | grep -q "$SHORT_SHA"; then
+            break
+          fi
+          sleep 10
         done
-        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep \"$SHORT_SHA\"
+
+        # confirm we really saw the SHA
+        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep "$SHORT_SHA"
+
+        # promote artifact + version tag
         gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-        echo \"$SHORT_SHA\" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+        echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+
 timeout: "1200s"
+
 options:
   logging: CLOUD_LOGGING_ONLY
