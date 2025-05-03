@@ -24,7 +24,7 @@ options:
     args:
       - -euxc
       - |
-        for i in {1..30}; do          # ~5 min total (@10 s)
+        for i in {1..30}; do          # ~5 min (@10 s)
           gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA" \
             && break || sleep 10
         done
