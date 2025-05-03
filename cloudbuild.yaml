@@ -14,9 +14,6 @@ steps:
         gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
         gsutil cp /workspace/VERSION    gs://grayst0-deploy/VERSION
 
-timeout: "1200s"
-options:
-  logging: CLOUD_LOGGING_ONLY
   # 3 – Promote only after sandbox writes SMOKE_PASS <sha>
   - name: gcr.io/cloud-builders/gsutil
     id: promote-if-pass
@@ -24,10 +21,13 @@ options:
     args:
       - -euxc
       - |
-        for i in {1..30}; do          # ~5 min (@10 s)
-          gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA" \
+        for i in {1..30}; do
+          gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q \"$SHORT_SHA\" \\
             && break || sleep 10
         done
-        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep "$SHORT_SHA"
+        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep \"$SHORT_SHA\"
         gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-        echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+        echo \"$SHORT_SHA\" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+timeout: "1200s"
+options:
+  logging: CLOUD_LOGGING_ONLY
