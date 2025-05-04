@@ -1,30 +1,21 @@
-logsBucket: gs://grayst0-cloudbuild-logs
+# ─── Cloud Build pipeline (single smoke-test) ──────────────────────────────────
+logsBucket: gs://grayst0-build-logs                      # ✅ bucket exists
 
 steps:
-  # ── 1. Build & run smoke‑tests ─────────────────────────────────────────────
-  - id: build-and-test
-    name: python:3.11-slim
-    entrypoint: bash
-    args:
-      - -euxo
-      - pipefail
-      - |
-        pip install --quiet --no-cache-dir -r requirements.txt
-        python -m pytest -q tests/smoke/
+# ── 1. run smoke tests directly in the python:3.11-slim image ────────────────
+- id: build-and-test
+  name: python:3.11-slim
+  entrypoint: bash
+  args:
+    - -c
+    - |
+      set -euo pipefail
+      echo "📦 installing deps …"
+      pip install --quiet --no-cache-dir -r requirements.txt
+      echo "🧪 running smoke tests …"
+      python -m pytest -q tests/smoke/
+# ──────────────────────────────────────────────────────────────────────────────
 
-  # ── 2. If tests passed, pack and upload artifact ──────────────────────────
-  - id: pack-and-upload
-    name: gcr.io/cloud-builders/gsutil
-    waitFor: ["build-and-test"]
-    entrypoint: bash
-    args:
-      - -euxo
-      - pipefail
-      - |
-        tar -czf /workspace/latest.tgz --exclude=.git .
-        echo "$SHORT_SHA" > /workspace/VERSION
-        gsutil cp /workspace/latest.tgz ${_ARTIFACT_BUCKET}/latest.tgz
-        gsutil cp /workspace/VERSION    ${_ARTIFACT_BUCKET}/VERSION
-
-# 15 min timeout (900 s)
-timeout: "900s"
+timeout: 900s
+options:
+  logging: CLOUD_LOGGING_ONLY
