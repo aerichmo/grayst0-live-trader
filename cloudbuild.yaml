@@ -62,12 +62,12 @@ steps:
 
   # 4 – autonomous maintenance (direct-push with [bot-skip])
   - id: make-and-commit-changes
-    name: gcr.io/cloud-builders/git
+    name: python:3.11-slim 
     entrypoint: bash
     args:
       - -c
       - ./scripts/auto-maintain.sh
-    secretEnv:
+    name: python:3.11-slim
       - GITHUB_PAT        # injected from availableSecrets
 
 timeout: 3600s
