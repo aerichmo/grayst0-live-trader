@@ -1,57 +1,33 @@
-# ───────────────────────────── cloudbuild.yaml ─────────────────────────────
-# Trigger: deploy-on-push
-# Purpose : 1) build + run smoke tests
-#           2) upload artefact to gs://grayst0-deploy/
-#           3) promote to “-prod” only after the sandbox VM writes SMOKE_PASS
-# ----------------------------------------------------------------------------
+# Cloud Build: build a tiny test image, run smoke‑tests, then (if they pass)
+# upload an artifact and version file to Cloud Storage.
+substitutions:
+  _ARTIFACT_BUCKET: gs://grayst0-deploy
 
 steps:
-# 1) Build a throw-away image, install deps, run smoke tests
-- name: python:3.11-slim
-  id: build-and-test
-  entrypoint: bash
-  args:
-    - -c
-    - |
-      set -euxo pipefail
-      pip install --quiet --no-cache-dir -r requirements.txt
-      python -m pytest -q tests/smoke/
+  # ── 1. Build & run smoke‑tests ─────────────────────────────────────────────
+  - id: build-and-test
+    name: python:3.11-slim
+    entrypoint: bash
+    args:
+      - -euxo
+      - pipefail
+      - |
+        pip install --quiet --no-cache-dir -r requirements.txt
+        python -m pytest -q tests/smoke/
 
-# 2) Pack the workspace (excluding .git) and upload to the deploy bucket
-- name: gcr.io/cloud-builders/gsutil
-  id: pack-and-upload
-  entrypoint: bash
-  args:
-    - -c
-    - |
-      set -euxo pipefail
-      tar -czf /workspace/latest.tgz --exclude=.git .
-      echo "$SHORT_SHA" > /workspace/VERSION
-      gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
-      gsutil cp /workspace/VERSION    gs://grayst0-deploy/VERSION
+  # ── 2. If tests passed, pack and upload artifact ──────────────────────────
+  - id: pack-and-upload
+    name: gcr.io/cloud-builders/gsutil
+    waitFor: ["build-and-test"]
+    entrypoint: bash
+    args:
+      - -euxo
+      - pipefail
+      - |
+        tar -czf /workspace/latest.tgz --exclude=.git .
+        echo "$SHORT_SHA" > /workspace/VERSION
+        gsutil cp /workspace/latest.tgz ${_ARTIFACT_BUCKET}/latest.tgz
+        gsutil cp /workspace/VERSION    ${_ARTIFACT_BUCKET}/VERSION
 
-# 3) Wait (max ~5 min) for the sandbox VM to write SMOKE_PASS <sha>,
-#    then promote artefact to *-prod* objects.
-- name: gcr.io/cloud-builders/gsutil
-  id: promote-if-pass
-  entrypoint: bash
-  args:
-    - -c
-    - |
-      set -euxo pipefail
-      for i in {1..30}; do   # 30 × 10 s  ≈ 5 min
-        if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA"; then
-          break
-        fi
-        sleep 10
-      done
-      # hard-fail if the SHA still isn’t present
-      gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep "$SHORT_SHA"
-      # promote
-      gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-      echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
-
-timeout: "900s"           # 15 minutes
-options:
-  logging: CLOUD_LOGGING_ONLY
-# ────────────────────────────────────────────────────────────────────────────
+# 15 min timeout (900 s)
+timeout: "900s"
