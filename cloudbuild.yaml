@@ -1,7 +1,4 @@
-# Cloud Build: build a tiny test image, run smoke‑tests, then (if they pass)
-# upload an artifact and version file to Cloud Storage.
-substitutions:
-  _ARTIFACT_BUCKET: gs://grayst0-deploy
+logsBucket: gs://grayst0-cloudbuild-logs
 
 steps:
   # ── 1. Build & run smoke‑tests ─────────────────────────────────────────────
