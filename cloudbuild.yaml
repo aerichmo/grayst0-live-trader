@@ -1,117 +1,115 @@
 # ---------------------------------------------------------------------------
-# Cloud Build pipeline for grayst0-live-trader (self-healing + auto-commit)
+# Cloud Build pipeline for grayst0-live-trader
 # ---------------------------------------------------------------------------
 
-# 1. Send all build logs to your dedicated bucket
-logsBucket: gs://grayst0-build-logs
+# (1) Send all build logs to the dedicated bucket
+logsBucket: gs://grayst0-build-logs-1746335095
 
-# 2. Allow unknown substitutions without breaking the build
+# (2) Don’t fail on unknown _VARS
 options:
   substitutionOption: ALLOW_LOOSE
 
+# ---------------------------------------------------------------------------
+# Build steps
+# ---------------------------------------------------------------------------
 steps:
 
-  ##############################################################################
-  # 0. Run smoke tests in a clean Python 3.11 environment
-  ##############################################################################
-  - id: build-and-test
-    name: python:3.11-slim
-    entrypoint: bash
-    args:
-      - -ceu
-      - |
-        echo "📦 installing deps …"
-        pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
-        echo "🧪 running smoke tests …"
-        python -m pytest -q tests/smoke/
+##############################################################################
+# 0. Run smoke tests in clean Python 3.11
+##############################################################################
+- id: build-and-test
+  name: python:3.11-slim
+  entrypoint: bash
+  args:
+    - -ceu
+    - |
+      echo "📦 installing deps …"
+      pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
+      echo "🧪 running smoke tests …"
+      python -m pytest -q tests/smoke/
 
-  ##############################################################################
-  # 1. Archive the workspace → gs://grayst0-deploy/latest.tgz + VERSION
-  ##############################################################################
-  - id: pack-and-upload
-    name: gcr.io/cloud-builders/gsutil
-    entrypoint: bash
-    args:
-      - -ceu
-      - |
-        echo "📦 archiving workspace …"
-        TMP_TGZ="/tmp/latest.tgz"
-        tar -czf "$TMP_TGZ" --exclude=.git .
-        echo "$SHORT_SHA" > /tmp/VERSION
-        gsutil cp "$TMP_TGZ"    ${_DEPLOY_BUCKET}/latest.tgz
-        gsutil cp /tmp/VERSION  ${_DEPLOY_BUCKET}/VERSION
+##############################################################################
+# 1. Archive & upload artifact
+##############################################################################
+- id: pack-and-upload
+  name: gcr.io/cloud-builders/gsutil
+  waitFor: ['build-and-test']
+  entrypoint: bash
+  args:
+    - -ceu
+    - |
+      echo "📦 archiving workspace …"
+      TMP_TGZ="/tmp/latest.tgz"
+      tar -czf "$TMP_TGZ" --exclude=.git .
+      echo "$COMMIT_SHA" > /tmp/VERSION
+      gsutil cp "$TMP_TGZ" gs://grayst0-deploy/latest.tgz
+      gsutil cp /tmp/VERSION    gs://grayst0-deploy/VERSION
 
-  ##############################################################################
-  # 2. Wait for sandbox SMOKE_PASS → promote to prod
-  ##############################################################################
-  - id: promote-if-pass
-    name: gcr.io/cloud-builders/gsutil
-    waitFor: ['pack-and-upload']
-    entrypoint: bash
-    args:
-      - -ceu
-      - |
-        echo "🚦 waiting for sandbox SMOKE_PASS …"
-        for i in {1..30}; do
-          if gsutil cat ${_DEPLOY_BUCKET}/SMOKE_PASS 2>/dev/null \
-               | grep -q "$SHORT_SHA"; then
-            echo "✅ sandbox passed – promoting"
-            gsutil cp ${_DEPLOY_BUCKET}/latest.tgz    ${_DEPLOY_BUCKET}/latest.tgz-prod
-            echo "$SHORT_SHA" \
-              | gsutil cp -                       ${_DEPLOY_BUCKET}/VERSION-prod
-            exit 0
-          fi
-          sleep 10
-        done
-        echo "🛑 sandbox did not approve within 5 min"
-        exit 1
-
-  ##############################################################################
-  # 3. Run auto-maintenance and push any changes back to main
-  ##############################################################################
-  - id: make-and-commit-changes
-    name: python:3.11-slim
-    waitFor: ['promote-if-pass']
-    # fetch your GITHUB_PAT from Secret Manager
-    secretEnv: ['GITHUB_PAT']
-    env:
-      - 'GITHUB_TOKEN=${GITHUB_PAT}'
-      - 'GIT_AUTHOR_NAME=cloudbuild'
-      - 'GIT_AUTHOR_EMAIL=ci@grayst0'
-      - 'GIT_COMMITTER_NAME=cloudbuild'
-      - 'GIT_COMMITTER_EMAIL=ci@grayst0'
-    entrypoint: bash
-    args:
-      - -ceu
-      - |
-        echo "📦 installing auto-maintain deps …"
-        pip install --quiet --no-cache-dir -r scripts/requirements-auto.txt
-
-        echo "🤖 running auto-maintain …"
-        ./scripts/auto-maintain.sh
-
-        # if anything changed, commit & push directly to main
-        if [[ -n "$(git status --porcelain)" ]]; then
-          echo "✏️  committing changes …"
-          git config user.name  "$GIT_AUTHOR_NAME"
-          git config user.email "$GIT_AUTHOR_EMAIL"
-          git add .
-          git commit -m "chore: auto-maintenance updates [skip ci]"
-
-          echo "🚀 pushing to main …"
-          git push "https://${GITHUB_TOKEN}@github.com/aerichmo/grayst0-live-trader.git" \
-                   HEAD:main
-        else
-          echo "✅ no changes to commit"
+##############################################################################
+# 2. Wait for SMOKE_PASS from sandbox, then promote to “prod”
+##############################################################################
+- id: promote-if-pass
+  name: gcr.io/cloud-builders/gsutil
+  waitFor: ['pack-and-upload']
+  entrypoint: bash
+  args:
+    - -ceu
+    - |
+      echo "🚦 waiting for sandbox SMOKE_PASS …"
+      for i in {1..30}; do
+        if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
+             | grep -q "$COMMIT_SHA"; then
+          echo "✅ sandbox passed – promoting"
+          gsutil cp gs://grayst0-deploy/latest.tgz    gs://grayst0-deploy/latest.tgz-prod
+          echo "$COMMIT_SHA" | gsutil cp -           gs://grayst0-deploy/VERSION-prod
+          exit 0
         fi
+        sleep 10
+      done
+      echo "🛑 sandbox did not approve within 5 min"
+      exit 1
+
+##############################################################################
+# 3. Auto-maintain the repo and push any changes back to main
+##############################################################################
+- id: make-and-commit-changes
+  name: python:3.11-slim
+  waitFor: ['promote-if-pass']
+  entrypoint: bash
+  env:
+    # pull your GitHub PAT from Secret Manager
+    - GITHUB_TOKEN=$(gcloud secrets versions access latest --secret=GITHUB_PAT)
+    - GIT_AUTHOR_NAME=cloudbuild
+    - GIT_AUTHOR_EMAIL=ci@grayst0
+    - GIT_COMMITTER_NAME=cloudbuild
+    - GIT_COMMITTER_EMAIL=ci@grayst0
+  args:
+    - -ceu
+    - |
+      echo "⚙️  running auto-maintain …"
+      pip install --quiet --no-cache-dir -r scripts/requirements-auto.txt
+      ./scripts/auto-maintain.sh
+
+      # configure git and push if there are changes
+      git config user.name  "$GIT_AUTHOR_NAME"
+      git config user.email "$GIT_AUTHOR_EMAIL"
+      git remote set-url origin https://$GITHUB_TOKEN@github.com/aerichmo/grayst0-live-trader.git
+
+      if ! git diff --quiet; then
+        git add .
+        git commit -m "ci: auto-maintain updates [skip ci]"
+        git push origin main
+      else
+        echo "🔍 no auto-maintain changes to commit"
+      fi
 
 # ---------------------------------------------------------------------------
-# Nothing to build into a container image
+# No container images to build/publish
 # ---------------------------------------------------------------------------
 images: []
 
 # ---------------------------------------------------------------------------
-# Custom substitutions
+# Handy substitutions
 # ---------------------------------------------------------------------------
 substitutions:
-  _DEPLOY_BUCKET: gs://grayst0-deploy
+  _PY_VERSION: "3.11"
