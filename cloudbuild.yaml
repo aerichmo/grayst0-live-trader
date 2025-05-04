@@ -1,16 +1,14 @@
-kk# cloudbuild.yaml  – minimal smoke-test pipeline
-logsBucket: gs://grayst0-build-logs   # <-- bucket already exists & SA has admin
+# cloudbuild.yaml  – minimal smoke-test pipeline
+logsBucket: gs://grayst0-build-logs
 
 steps:
-  # 1 – Build a throw-away container and run the smoke tests inside it
-  - id: build-and-test
-    name: python:3.11-slim
-    entrypoint: bash
-    args:
-      - -ceu
-      - |
-        echo "📦 installing deps …"
-        pip install --quiet --no-cache-dir pytest -r requirements.txt
-        echo "🧪 running smoke tests …"
-        python -m pytest -q tests/smoke/
-
+- id: build-and-test
+  name: python:3.11-slim
+  entrypoint: bash
+  args:
+    - -ceu
+    - |
+      echo "📦 installing deps …"
+      pip install --quiet --no-cache-dir pytest -r requirements.txt
+      echo "🧪 running smoke tests …"
+      python -m pytest -q tests/smoke/
