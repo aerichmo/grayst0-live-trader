@@ -1,0 +1,5 @@
+
+# local artefacts we never want to commit
+.graystone-bot/
+cloudbuild.yaml.bak
+main
