@@ -1,20 +1,16 @@
-# ─── Cloud Build pipeline (single smoke-test) ──────────────────────────────────
-logsBucket: gs://grayst0-build-logs                      # ✅ bucket exists
+kk# cloudbuild.yaml  – minimal smoke-test pipeline
+logsBucket: gs://grayst0-build-logs   # <-- bucket already exists & SA has admin
 
 steps:
-# ── 1. run smoke tests directly in the python:3.11-slim image ────────────────
-- id: build-and-test
-  name: python:3.11-slim
-  entrypoint: bash
-  args:
-    - -c
-    - |
-      set -euo pipefail
-      echo "📦 installing deps …"
-      pip install --quiet --no-cache-dir -r requirements.txt
-      echo "🧪 running smoke tests …"
-      python -m pytest -q tests/smoke/
-# ──────────────────────────────────────────────────────────────────────────────
+  # 1 – Build a throw-away container and run the smoke tests inside it
+  - id: build-and-test
+    name: python:3.11-slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        echo "📦 installing deps …"
+        pip install --quiet --no-cache-dir pytest -r requirements.txt
+        echo "🧪 running smoke tests …"
+        python -m pytest -q tests/smoke/
 
-timeout: 900s
-options:
