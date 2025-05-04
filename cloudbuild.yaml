@@ -1,11 +1,11 @@
 # ---------------------------------------------------------------------------
-# Cloud Build pipeline for grayst0-live-trader
+# Cloud Build pipeline for **grayst0-live-trader**
 # ---------------------------------------------------------------------------
 
-# (1) Send all build logs to the dedicated bucket we just created.
-logsBucket: gs://grayst0-build-logs-1746335095        # ← new
+# (A) send all build logs to the dedicated bucket you created
+logsBucket: gs://grayst0-build-logs-1746335095
 
-# (2) Allow loose substitutions so unknown _VARS don’t break the build.
+# (B) allow unknown “_VARS” in substitutions without failing the build
 options:
   substitutionOption: ALLOW_LOOSE
 
@@ -15,79 +15,85 @@ options:
 steps:
 
 ##############################################################################
-# 0. Run unit / smoke tests in a clean 3.11 environment
+# 0 · Run smoke-tests in a clean Python 3.11 image
 ##############################################################################
 - id: build-and-test
   name: python:3.11-slim
   entrypoint: bash
   args:
-    - -euoc
+    - -ceu
     - |
       echo "📦 installing deps …"
-      pip install -r requirements.txt
+      pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
       echo "🧪 running smoke tests …"
-      pytest tests/smoke
+      python -m pytest -q tests/smoke/
 
 ##############################################################################
-# 1. Archive the workspace → gs://grayst0-deploy/latest.tgz  +  VERSION file
+# 1 · Archive workspace → gs://grayst0-deploy/latest.tgz  +  VERSION
 ##############################################################################
 - id: pack-and-upload
   name: gcr.io/cloud-builders/gsutil
   entrypoint: bash
   args:
-    - -euoc
+    - -ceu
     - |
-      TMP=/tmp/latest.tgz
       echo "📦  archiving workspace …"
-      tar -czf "$TMP" .
-      gsutil cp "$TMP" gs://grayst0-deploy/latest.tgz
-      echo "$COMMIT_SHA" > /tmp/VERSION
-      gsutil cp /tmp/VERSION gs://grayst0-deploy/VERSION
+      TMP_TGZ="/tmp/latest.tgz"
+      tar -czf "$TMP_TGZ" --exclude=.git .
+      echo "$SHORT_SHA" > /tmp/VERSION
+      gsutil cp "$TMP_TGZ"        ${_DEPLOY_BUCKET}/latest.tgz
+      gsutil cp /tmp/VERSION      ${_DEPLOY_BUCKET}/VERSION
 
 ##############################################################################
-# 2. Wait for the sandbox VM to post SMOKE_PASS → promote artefact to “prod”
+# 2 · Wait for sandbox SMOKE_PASS → promote artefact to “prod”
 ##############################################################################
 - id: promote-if-pass
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['pack-and-upload']
   entrypoint: bash
   args:
-    - -euoc
+    - -ceu
     - |
       echo "🚦 waiting for sandbox SMOKE_PASS …"
-      until gsutil -q stat gs://grayst0-deploy/SMOKE_PASS ; do
-        sleep 5
+      for i in {1..30}; do
+        if gsutil cat ${_DEPLOY_BUCKET}/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA"; then
+          echo "✅ sandbox passed – promoting"
+          gsutil cp ${_DEPLOY_BUCKET}/latest.tgz  ${_DEPLOY_BUCKET}/latest.tgz-prod
+          echo "$SHORT_SHA" | gsutil cp -        ${_DEPLOY_BUCKET}/VERSION-prod
+          exit 0
+        fi
+        sleep 10
       done
-      echo "✅ sandbox passed – promoting"
-      gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-prod/latest.tgz
-      printf 'prod-OK %s\n' "$COMMIT_SHA" | gsutil cp - gs://grayst0-deploy/PROD_PASS
+      echo "🛑 sandbox did not approve within 5 min"
+      exit 1
 
 ##############################################################################
-# 3. Run the repo’s auto-maintenance script (now in a proper python image)
+# 3 · Run repo auto-maintenance (generates / commits config, etc.)
 ##############################################################################
 - id: make-and-commit-changes
-  name: python:3.11-slim                # ← switched from git → python image
+  name: python:3.11-slim          # python image so we can install deps easily
   waitFor: ['promote-if-pass']
   entrypoint: bash
   env:
-    # git will use these when auto-committing generated files
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
     - GIT_COMMITTER_NAME=cloudbuild
     - GIT_COMMITTER_EMAIL=ci@grayst0
   args:
-    - -euoc
+    - -ceu
     - |
-      pip install -r scripts/requirements-auto.txt   # deps for auto-maintain
+      echo "🔧 running auto-maintenance …"
+      pip install --quiet -r scripts/requirements-auto.txt
       ./scripts/auto-maintain.sh
 
 # ---------------------------------------------------------------------------
-# No images are pushed by this build
+# No container images produced by this build
 # ---------------------------------------------------------------------------
 images: []
 
 # ---------------------------------------------------------------------------
-# Handy custom substitutions (none are strictly required)
+# Custom substitutions you can reference with ${_VAR}
 # ---------------------------------------------------------------------------
 substitutions:
+  _DEPLOY_BUCKET: gs://grayst0-deploy
   _PY_VERSION: "3.11"
