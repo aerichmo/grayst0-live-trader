@@ -31,5 +31,29 @@ steps:
         echo "$SHORT_SHA" > /tmp/VERSION
         gsutil cp "$$TMP_TGZ"       ${_DEPLOY_BUCKET}/latest.tgz
         gsutil cp /tmp/VERSION       ${_DEPLOY_BUCKET}/VERSION
+
+  # 3 – promote to prod once the sandbox marks SMOKE_PASS <sha>
+  - id: promote-if-pass
+    name: gcr.io/cloud-builders/gsutil
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        echo "🚦 waiting for sandbox SMOKE_PASS …"
+        for i in {1..30}; do
+          if gsutil cat ${_DEPLOY_BUCKET}/SMOKE_PASS 2>/dev/null \
+               | grep -q "$SHORT_SHA"; then
+            echo "✅ sandbox passed – promoting"
+            gsutil cp ${_DEPLOY_BUCKET}/latest.tgz \
+                      ${_DEPLOY_BUCKET}/latest.tgz-prod
+            echo "$SHORT_SHA" | gsutil cp - \
+                      ${_DEPLOY_BUCKET}/VERSION-prod
+            exit 0
+          fi
+          sleep 10
+        done
+        echo "🛑 sandbox did not approve within 5 min"
+        exit 1
+
 timeout: 3600s
 # ──────────────────────────────────────────────────────────────────────────────
