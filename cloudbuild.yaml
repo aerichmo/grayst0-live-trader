@@ -18,7 +18,7 @@ steps:
         echo "🧪 running smoke tests …"
         python -m pytest -q tests/smoke/
 
-  # 2 – pack the repo and upload (create .tgz in /tmp so tar never rereads it)
+  # 2 – pack the repo and upload (archive lives in /tmp)
   - id: pack-and-upload
     name: gcr.io/cloud-builders/gsutil
     entrypoint: bash
@@ -27,9 +27,9 @@ steps:
       - |
         echo "📦  archiving workspace …"
         TMP_TGZ="/tmp/latest.tgz"
-        tar -czf "${TMP_TGZ}" --exclude=.git .
+        tar -czf "$$TMP_TGZ" --exclude=.git .
         echo "$SHORT_SHA" > /tmp/VERSION
-        gsutil cp "${TMP_TGZ}"       ${_DEPLOY_BUCKET}/latest.tgz
+        gsutil cp "$$TMP_TGZ"       ${_DEPLOY_BUCKET}/latest.tgz
         gsutil cp /tmp/VERSION       ${_DEPLOY_BUCKET}/VERSION
 timeout: 3600s
 # ──────────────────────────────────────────────────────────────────────────────
