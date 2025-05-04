@@ -1,14 +1,34 @@
-# cloudbuild.yaml  – minimal smoke-test pipeline
-logsBucket: gs://grayst0-build-logs
+# cloudbuild.yaml  ⟨totally self-contained⟩
+# ──────────────────────────────────────────────────────────────────────────────
+logsBucket: gs://grayst0-build-logs        # handled earlier
+
+substitutions:
+  _DEPLOY_BUCKET: gs://grayst0-deploy      # bundle lands here
 
 steps:
-- id: build-and-test
-  name: python:3.11-slim
-  entrypoint: bash
-  args:
-    - -ceu
-    - |
-      echo "📦 installing deps …"
-      pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
-      echo "🧪 running smoke tests …"
-      python -m pytest -q tests/smoke/
+  # 1 – build & smoke-test the repo
+  - id: build-and-test
+    name: python:3.11-slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        echo "📦 installing deps …"
+        pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
+        echo "🧪 running smoke tests …"
+        python -m pytest -q tests/smoke/
+
+  # 2 – **only if step 1 succeeded**: pack the repo and upload to sandbox bucket
+  - id: pack-and-upload
+    name: gcr.io/cloud-builders/gsutil
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        echo "📦  archiving workspace …"
+        tar -czf /workspace/latest.tgz --exclude=.git .
+        echo "$SHORT_SHA" > /workspace/VERSION
+        gsutil cp /workspace/latest.tgz ${_DEPLOY_BUCKET}/latest.tgz
+        gsutil cp /workspace/VERSION    ${_DEPLOY_BUCKET}/VERSION
+timeout: 3600s
+# ──────────────────────────────────────────────────────────────────────────────
