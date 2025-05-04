@@ -1,69 +1,93 @@
-# ─────────────────────────────── Cloud Build ────────────────────────────────
-# Writes all logs to a dedicated bucket and keeps Cloud Logging clean.
-logsBucket: gs://grayst0-build-logs-1746335095
+# ---------------------------------------------------------------------------
+# Cloud Build pipeline for grayst0-live-trader
+# ---------------------------------------------------------------------------
 
+# (1) Send all build logs to the dedicated bucket we just created.
+logsBucket: gs://grayst0-build-logs-1746335095        # ← new
+
+# (2) Allow loose substitutions so unknown _VARS don’t break the build.
 options:
-  logging: GCS_ONLY          # don’t duplicate logs in Cloud Logging
+  substitutionOption: ALLOW_LOOSE
 
-# ────────────────────────────────── Steps ────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Build steps
+# ---------------------------------------------------------------------------
 steps:
 
-# 1. Build & run unit / smoke tests inside a slim Python image
-- name: python:3.11-slim
-  id: build-and-test
+##############################################################################
+# 0. Run unit / smoke tests in a clean 3.11 environment
+##############################################################################
+- id: build-and-test
+  name: python:3.11-slim
   entrypoint: bash
   args:
-    - -c
+    - -euoc
     - |
       echo "📦 installing deps …"
-      pip install -q -r requirements.txt
+      pip install -r requirements.txt
       echo "🧪 running smoke tests …"
-      pytest -q tests/smoke
+      pytest tests/smoke
 
-# 2. Package workspace into a tarball & push to the artefact bucket
-- name: gcr.io/cloud-builders/gsutil
-  id: pack-and-upload
+##############################################################################
+# 1. Archive the workspace → gs://grayst0-deploy/latest.tgz  +  VERSION file
+##############################################################################
+- id: pack-and-upload
+  name: gcr.io/cloud-builders/gsutil
   entrypoint: bash
   args:
-    - -c
+    - -euoc
     - |
+      TMP=/tmp/latest.tgz
       echo "📦  archiving workspace …"
-      tar czf /tmp/latest.tgz .
-      echo "${COMMIT_SHA:0:8}" > /tmp/VERSION
-      gsutil cp /tmp/latest.tgz gs://grayst0-deploy/latest.tgz
-      gsutil cp /tmp/VERSION     gs://grayst0-deploy/VERSION
+      tar -czf "$TMP" .
+      gsutil cp "$TMP" gs://grayst0-deploy/latest.tgz
+      echo "$COMMIT_SHA" > /tmp/VERSION
+      gsutil cp /tmp/VERSION gs://grayst0-deploy/VERSION
 
-# 3. Wait until the sandbox VM writes SMOKE_PASS, then promote artefact
-- name: gcr.io/cloud-builders/gsutil
-  id: promote-if-pass
+##############################################################################
+# 2. Wait for the sandbox VM to post SMOKE_PASS → promote artefact to “prod”
+##############################################################################
+- id: promote-if-pass
+  name: gcr.io/cloud-builders/gsutil
+  waitFor: ['pack-and-upload']
   entrypoint: bash
   args:
-    - -c
+    - -euoc
     - |
       echo "🚦 waiting for sandbox SMOKE_PASS …"
-      until gsutil ls gs://grayst0-deploy/SMOKE_PASS 1>/dev/null 2>&1; do
+      until gsutil -q stat gs://grayst0-deploy/SMOKE_PASS ; do
         sleep 5
       done
       echo "✅ sandbox passed – promoting"
       gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-prod/latest.tgz
-      printf 'promoted %s\n' "${COMMIT_SHA:0:8}" | \
-        gsutil cp - gs://grayst0-deploy/PROMOTIONS
+      printf 'prod-OK %s\n' "$COMMIT_SHA" | gsutil cp - gs://grayst0-deploy/PROD_PASS
 
-# 4. Auto-maintain: create PRs / tag releases etc.
-- name: python:3.11-slim          # ← use python image so `python` is present
-  id: auto-maintain
+##############################################################################
+# 3. Run the repo’s auto-maintenance script (now in a proper python image)
+##############################################################################
+- id: make-and-commit-changes
+  name: python:3.11-slim                # ← switched from git → python image
+  waitFor: ['promote-if-pass']
   entrypoint: bash
+  env:
+    # git will use these when auto-committing generated files
+    - GIT_AUTHOR_NAME=cloudbuild
+    - GIT_AUTHOR_EMAIL=ci@grayst0
+    - GIT_COMMITTER_NAME=cloudbuild
+    - GIT_COMMITTER_EMAIL=ci@grayst0
   args:
-    - -c
+    - -euoc
     - |
-      pip install -q -r scripts/maintain/requirements.txt
-      echo "🤖 running auto-maintain …"
-      python scripts/auto-maintain.py
+      pip install -r scripts/requirements-auto.txt   # deps for auto-maintain
+      ./scripts/auto-maintain.sh
 
-# ───────────────────────────────── Artifacts ────────────────────────────────
-artifacts:
-  objects:
-    location: gs://grayst0-deploy
-    paths: [ /tmp/latest.tgz, /tmp/VERSION ]
+# ---------------------------------------------------------------------------
+# No images are pushed by this build
+# ---------------------------------------------------------------------------
+images: []
 
-timeout: 900s   # 15 minutes – adjust if your build occasionally runs longer
+# ---------------------------------------------------------------------------
+# Handy custom substitutions (none are strictly required)
+# ---------------------------------------------------------------------------
+substitutions:
+  _PY_VERSION: "3.11"
