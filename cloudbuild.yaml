@@ -1,42 +1,28 @@
 steps:
-  # 1 — build a tiny image and run the smoke tests
-  - id: build-test-image
-    name: python:3.11-slim
+  # 1 – run the tiny smoke-test image
+  - name: python:3.11-slim
+    id: build-and-test
     entrypoint: bash
     args:
-      - -euxc
+      - -euxo
+      - pipefail
       - |
-        pip install --no-cache-dir -r requirements.txt
+        pip install --quiet --no-cache-dir -r requirements.txt
         python -m pytest -q tests/smoke/
 
-  # 2 — bundle the workspace and drop it in the sandbox bucket
-  - id: pack-and-upload
-    name: gcr.io/cloud-builders/gsutil
+  # 2 – tar the repo and upload to the sandbox bucket
+  - name: gcr.io/cloud-builders/gsutil
+    id: pack-and-upload
     entrypoint: bash
     args:
-      - -euxc
+      - -euxo
+      - pipefail
       - |
         tar -czf /workspace/latest.tgz --exclude=.git .
         echo "$SHORT_SHA" > /workspace/VERSION
-        gsutil -q cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
-        gsutil -q cp /workspace/VERSION    gs://grayst0-deploy/VERSION
+        gsutil cp /workspace/latest.tgz gs://grayst0-deploy/latest.tgz
+        gsutil cp /workspace/VERSION gs://grayst0-deploy/VERSION
 
-  # 3 — wait (≤ 5 min) until the sandbox writes SMOKE_PASS ‹sha›, then promote
-  - id: promote-if-pass
-    name: gcr.io/cloud-builders/gsutil
-    entrypoint: bash
-    args:
-      - -euxc
-      - |
-        for i in {1..30}; do
-          gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA" && break
-          sleep 10
-        done
-        gsutil cat gs://grayst0-deploy/SMOKE_PASS | grep "$SHORT_SHA"
-        gsutil -q cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-        echo "$SHORT_SHA" | gsutil -q cp - gs://grayst0-deploy/VERSION-prod
-
-timeout: "1800s"
+timeout: "900s"
 options:
   logging: CLOUD_LOGGING_ONLY
-YAML
