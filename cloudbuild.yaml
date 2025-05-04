@@ -9,6 +9,6 @@ steps:
     - -ceu
     - |
       echo "📦 installing deps …"
-      pip install --quiet --no-cache-dir pytest -r requirements.txt
+      pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
       echo "🧪 running smoke tests …"
       python -m pytest -q tests/smoke/
