@@ -1,56 +1,69 @@
-# ───────────────────────────── cloudbuild.yaml ──────────────────────────────
-substitutions:
-  _DEPLOY_BUCKET: gs://grayst0-deploy
+# ─────────────────────────────── Cloud Build ────────────────────────────────
+# Writes all logs to a dedicated bucket and keeps Cloud Logging clean.
+logsBucket: gs://grayst0-build-logs-1746335095
 
+options:
+  logging: GCS_ONLY          # don’t duplicate logs in Cloud Logging
+
+# ────────────────────────────────── Steps ────────────────────────────────────
 steps:
-  # 1. Build + run unit-/smoke-tests
-  - id: build-and-test
-    name: python:3.11-slim
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        echo "📦 installing deps …"
-        pip install -q -r requirements.txt
-        echo "🧪 running smoke tests …"
-        pytest -q tests/smoke
 
-  # 2. Tar up the workspace and push artefact + VERSION
-  - id: pack-and-upload
-    name: gcr.io/cloud-builders/gsutil
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        echo "📦  archiving workspace …"
-        TAR=/tmp/latest.tgz
-        git rev-parse --short HEAD > /tmp/VERSION
-        tar czf "$TAR" .
-        gsutil cp "$TAR"       ${_DEPLOY_BUCKET}/latest.tgz
-        gsutil cp /tmp/VERSION ${_DEPLOY_BUCKET}/VERSION
+# 1. Build & run unit / smoke tests inside a slim Python image
+- name: python:3.11-slim
+  id: build-and-test
+  entrypoint: bash
+  args:
+    - -c
+    - |
+      echo "📦 installing deps …"
+      pip install -q -r requirements.txt
+      echo "🧪 running smoke tests …"
+      pytest -q tests/smoke
 
-  # 3. Wait for sandbox to report smoke-OK, then promote
-  - id: promote-if-pass
-    name: gcr.io/cloud-builders/gsutil
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        echo "🚦 waiting for sandbox SMOKE_PASS …"
-        VERSION="$(cat /tmp/VERSION)"
-        until gsutil cat ${_DEPLOY_BUCKET}/SMOKE_PASS 2>/dev/null | grep -q "$VERSION"; do
-          sleep 5
-        done
-        echo "✅ sandbox passed – promoting"
-        gsutil cp ${_DEPLOY_BUCKET}/latest.tgz  ${_DEPLOY_BUCKET}/prod.tgz
-        printf '%s\n' "$VERSION" | gsutil cp - ${_DEPLOY_BUCKET}/PROD_VERSION
+# 2. Package workspace into a tarball & push to the artefact bucket
+- name: gcr.io/cloud-builders/gsutil
+  id: pack-and-upload
+  entrypoint: bash
+  args:
+    - -c
+    - |
+      echo "📦  archiving workspace …"
+      tar czf /tmp/latest.tgz .
+      echo "${COMMIT_SHA:0:8}" > /tmp/VERSION
+      gsutil cp /tmp/latest.tgz gs://grayst0-deploy/latest.tgz
+      gsutil cp /tmp/VERSION     gs://grayst0-deploy/VERSION
 
-  # 4. Auto-maintain: bump README badges, tag release, etc.
-  - id: make-and-commit-changes
-    name: python:3.11-slim          # <-- the fix: gives us python in PATH
-    entrypoint: bash
-    args:
-      - scripts/auto-maintain.sh
+# 3. Wait until the sandbox VM writes SMOKE_PASS, then promote artefact
+- name: gcr.io/cloud-builders/gsutil
+  id: promote-if-pass
+  entrypoint: bash
+  args:
+    - -c
+    - |
+      echo "🚦 waiting for sandbox SMOKE_PASS …"
+      until gsutil ls gs://grayst0-deploy/SMOKE_PASS 1>/dev/null 2>&1; do
+        sleep 5
+      done
+      echo "✅ sandbox passed – promoting"
+      gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-prod/latest.tgz
+      printf 'promoted %s\n' "${COMMIT_SHA:0:8}" | \
+        gsutil cp - gs://grayst0-deploy/PROMOTIONS
 
-timeout: 900s
-# ────────────────────────────────────────────────────────────────────────────
+# 4. Auto-maintain: create PRs / tag releases etc.
+- name: python:3.11-slim          # ← use python image so `python` is present
+  id: auto-maintain
+  entrypoint: bash
+  args:
+    - -c
+    - |
+      pip install -q -r scripts/maintain/requirements.txt
+      echo "🤖 running auto-maintain …"
+      python scripts/auto-maintain.py
+
+# ───────────────────────────────── Artifacts ────────────────────────────────
+artifacts:
+  objects:
+    location: gs://grayst0-deploy
+    paths: [ /tmp/latest.tgz, /tmp/VERSION ]
+
+timeout: 900s   # 15 minutes – adjust if your build occasionally runs longer
