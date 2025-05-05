@@ -49,10 +49,10 @@ steps:
       echo "🚦 waiting for sandbox SMOKE_PASS …"
       for i in {1..30}; do
         if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
-           | grep -q "$$SHORT_SHA"; then
+           | grep -q "${SHORT_SHA}"; then
           echo "✅ sandbox passed – promoting"
           gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-          echo "$$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+          echo "${SHORT_SHA}" | gsutil cp - gs://grayst0-deploy/VERSION-prod
           exit 0
         fi
         sleep 10
