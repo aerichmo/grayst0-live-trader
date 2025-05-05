@@ -44,7 +44,7 @@ steps:
   waitFor: ['pack-and-upload']
   entrypoint: bash
   args:
-    - -euoc
+    - -ceu
     - |
       echo "🚦 waiting for sandbox SMOKE_PASS …"
       for i in {1..30}; do
