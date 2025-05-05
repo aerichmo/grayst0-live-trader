@@ -1,19 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# grayst0-live-trader — autonomous Cloud Build pipeline
-# ─────────────────────────────────────────────────────────────────────────────
-# NOTE ▸ let Cloud Build use **its default service account**
-#        (omit the `serviceAccount:` field entirely)
+# grayst0-live-trader — autonomous Cloud Build pipeline  (no custom SA)
 # ─────────────────────────────────────────────────────────────────────────────
 availableSecrets:
   secretManager:
     - versionName: projects/999946030108/secrets/GITHUB_PAT/versions/latest
-      env: GITHUB_PAT                       # injected as $GITHUB_PAT
+      env: GITHUB_PAT                     # arrives as $GITHUB_PAT
 
 logsBucket: gs://grayst0-build-logs
-
-options:
-  substitutionOption: ALLOW_LOOSE
-timeout: 3600s
+options:   {substitutionOption: ALLOW_LOOSE}
+timeout:   3600s
 
 steps:
 # ───────────────────────── 0. build & smoke-test ─────────────────────────────
@@ -36,10 +31,10 @@ steps:
   args:
     - -ceu
     - |
-        TAR=/tmp/latest.tgz
         echo "📦 archiving workspace …"
-        tar -czf "${TAR}" --exclude=.git .
-        gsutil cp "${TAR}" gs://grayst0-deploy/latest.tgz
+        TAR=/tmp/latest.tgz
+        tar -czf "$${TAR}" --exclude=.git .
+        gsutil cp "$${TAR}" gs://grayst0-deploy/latest.tgz
         echo "${SHORT_SHA}" > /tmp/VERSION
         gsutil cp /tmp/VERSION gs://grayst0-deploy/VERSION
 
@@ -64,11 +59,11 @@ steps:
         done
         echo "🛑 sandbox did not approve in time"; exit 1
 
-# ──────────────── 3. auto-maintenance & push via PAT ─────────────────────────
+# ───────────── 3. auto-maintenance commit pushed via PAT ─────────────────────
 - id: make-and-commit-changes
   name: python:3.11-slim
   waitFor: [promote-if-pass]
-  secretEnv: [GITHUB_PAT]                  # <- only secret reference
+  secretEnv: [GITHUB_PAT]                 # <- injected securely
   env:
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
@@ -83,4 +78,4 @@ steps:
         pip install --quiet -r scripts/requirements-auto.txt
         ./scripts/auto-maintain.sh
 
-images: []                                  # no container images produced
+images: []                                 # no Docker images produced
