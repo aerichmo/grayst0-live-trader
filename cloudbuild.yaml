@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # grayst0‑live‑trader – autonomous Cloud Build pipeline
 # ─────────────────────────────────────────────────────────────────────────────
-logsBucket: gs://grayst0-build-logs-1746335095   # adjust if you renamed it
+logsBucket: gs://grayst0-build-logs
 
 options:
   substitutionOption: ALLOW_LOOSE
