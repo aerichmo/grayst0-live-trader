@@ -1,85 +1,105 @@
-###############################################################################
-# Cloud Build · grayst0-live-trader  (autonomous pipeline)
-###############################################################################
+# ────────────────────────────────────────────────────────────────────────────
+# Cloud Build pipeline – grayst0-live-trader  (fully autonomous / self-healing)
+# ────────────────────────────────────────────────────────────────────────────
+
+# 1  Send build logs to the dedicated bucket
 logsBucket: gs://grayst0-build-logs-1746335095
+
+# 2  Allow unknown _SUBSTITUTIONS without aborting
 options:
   substitutionOption: ALLOW_LOOSE
+  logging: LEGACY                 # (needed when using logsBucket)
 
-# ─── Secret injection ────────────────────────────────────────────────────────
+# 3  Make the GitHub Personal-Access-Token available to steps that need it
 availableSecrets:
   secretManager:
     - versionName: projects/$(PROJECT_ID)/secrets/GITHUB_PAT/versions/latest
-      env: GITHUB_PAT                  # arrives as $$GITHUB_PAT
+      env: GITHUB_PAT             # becomes $GITHUB_PAT at runtime
 
-###############################################################################
+# ────────────────────────
+# Build Steps
+# ────────────────────────
 steps:
 
-# 0 ─ Smoke-test
+##############################################################################
+# 0. Test the workspace in a clean Python 3.11 image
+##############################################################################
 - id: build-and-test
   name: python:3.11-slim
   entrypoint: bash
   args:
-    - -ceu
+    - -euoc
     - |
       echo "📦 installing deps …"
-      pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
+      pip install --quiet pytest requests pyyaml -r requirements.txt
       echo "🧪 running smoke tests …"
       pytest -q tests/smoke
 
-# 1 ─ Archive artefact
+##############################################################################
+# 1. Archive the workspace → gs://grayst0-deploy/latest.tgz  (+ VERSION)
+##############################################################################
 - id: pack-and-upload
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['build-and-test']
   entrypoint: bash
   args:
-    - -ceu
+    - -euoc
     - |
       echo "📦  archiving workspace …"
-      TMPFILE="/tmp/latest.tgz"
-      tar -czf "$$TMPFILE" --exclude=.git .
-      gsutil cp "$$TMPFILE" gs://grayst0-deploy/latest.tgz
-      printf '%s\n' "$$SHORT_SHA" > /tmp/VERSION
+      TMP_TGZ="/tmp/latest.tgz"
+      tar -czf "$TMP_TGZ" --exclude=.git .
+      gsutil cp "$TMP_TGZ" gs://grayst0-deploy/latest.tgz
+      echo "$SHORT_SHA" > /tmp/VERSION
       gsutil cp /tmp/VERSION gs://grayst0-deploy/VERSION
 
-# 2 ─ Promote after sandbox pass
+##############################################################################
+# 2. Wait for the sandbox updater to create SMOKE_PASS → promote to “prod”
+##############################################################################
 - id: promote-if-pass
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['pack-and-upload']
   entrypoint: bash
   args:
-    - -ceu
+    - -euoc
     - |
       echo "🚦 waiting for sandbox SMOKE_PASS …"
-      for _ in {1..30}; do
-        gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$$SHORT_SHA" && break
+      for i in {1..30}; do
+        if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA"; then
+          echo "✅ sandbox passed – promoting"
+          gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
+          echo "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/VERSION-prod
+          exit 0
+        fi
         sleep 10
       done
-      if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$$SHORT_SHA"; then
-        echo "✅ sandbox passed – promoting"
-        gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-        printf 'prod-OK %s\n' "$$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/PROD_PASS
-      else
-        echo "🛑 sandbox did not approve within 5 min" ; exit 1
-      fi
+      echo "🛑 sandbox did not approve within 5 min"
+      exit 1
 
-# 3 ─ Auto-maintenance + self-commit
-- id: auto-maintain-and-commit
+##############################################################################
+# 3. Auto-maintenance step – updates code & pushes a commit via PAT
+##############################################################################
+- id: make-and-commit-changes
   name: python:3.11-slim
   waitFor: ['promote-if-pass']
-  entrypoint: bash
+  secretEnv:                   # ← injects $GITHUB_PAT from Secret Manager
+    - GITHUB_PAT
   env:
-    - GITHUB_PAT=$$GITHUB_PAT
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
     - GIT_COMMITTER_NAME=cloudbuild
     - GIT_COMMITTER_EMAIL=ci@grayst0
+  entrypoint: bash
   args:
-    - -ceu
+    - -euoc
     - |
       echo "🛠️  running auto-maintenance …"
-      export GITHUB_TOKEN="$$GITHUB_PAT"    # **escaped**
+      export GITHUB_TOKEN="$GITHUB_PAT"
       pip install --quiet -r scripts/requirements-auto.txt
       ./scripts/auto-maintain.sh
 
-images: []          # nothing to push
-###############################################################################
+# No container images are produced
+images: []
+
+# Handy custom substitution if you ever need it in scripts
+substitutions:
+  _PY_VERSION: "3.11"
