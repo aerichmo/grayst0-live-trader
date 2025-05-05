@@ -1,27 +1,27 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  Cloud Build pipeline · grayst0-live-trader
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Cloud Build pipeline for grayst0-live-trader  — fully self-healing
+# ---------------------------------------------------------------------------
 
-logsBucket: gs://grayst0-build-logs-1746335095   # build logs land here
+# 1 ╱ store raw-text logs in the dedicated bucket
+logsBucket: gs://grayst0-build-logs-1746335095
 
+# 2 ╱ unknown _SUBSTITUTIONS shouldn’t fail the build
 options:
-  substitutionOption: ALLOW_LOOSE               # ignore unknown ${_VARS}
+  substitutionOption: ALLOW_LOOSE
 
-# ---------------------------------------------------------------------------
-# Secrets (GitHub PAT for auto-maintenance commits)
-# ---------------------------------------------------------------------------
+# 3 ╱ inject the GitHub Personal-Access-Token so we can push commits
 availableSecrets:
   secretManager:
-    - versionName: projects/grayst0/secrets/GITHUB_PAT/versions/1
-      env: GITHUB_PAT
+    - versionName: projects/$PROJECT_NUMBER/secrets/GITHUB_PAT/versions/latest
+      env: GITHUB_PAT          # becomes $GITHUB_PAT inside steps
 
 # ---------------------------------------------------------------------------
-# Build steps
+# Build Steps
 # ---------------------------------------------------------------------------
 steps:
 
 ##############################################################################
-# 0  Run smoke tests in a clean Python 3.11 image
+# 0 .  Run smoke tests in a clean Python 3.11 image
 ##############################################################################
 - id: build-and-test
   name: python:3.11-slim
@@ -35,23 +35,23 @@ steps:
       python -m pytest -q tests/smoke/
 
 ##############################################################################
-# 1  Archive workspace → gs://grayst0-deploy/latest.tgz  (+ VERSION file)
+# 1 .  Archive workspace → grayst0-deploy (latest.tgz + VERSION)
 ##############################################################################
 - id: pack-and-upload
   name: gcr.io/cloud-builders/gsutil
-  waitFor: ['build-and-test']
   entrypoint: bash
   args:
     - -ceu
     - |
       echo "📦 archiving workspace …"
       TMPFILE="/tmp/latest.tgz"
-      tar -czf "$${TMPFILE}" --exclude=.git .
-      gsutil cp "$${TMPFILE}" ${_DEPLOY_BUCKET}/latest.tgz
-      echo "${SHORT_SHA}" | gsutil cp - ${_DEPLOY_BUCKET}/VERSION
+      tar -czf "$TMPFILE" --exclude=.git .
+      gsutil cp "$TMPFILE" gs://grayst0-deploy/latest.tgz
+      echo "$COMMIT_SHA" > /tmp/VERSION
+      gsutil cp /tmp/VERSION gs://grayst0-deploy/VERSION
 
 ##############################################################################
-# 2  Wait for sandbox SMOKE_PASS → promote artefact to “prod”
+# 2 .  Wait for sandbox VM to emit SMOKE_PASS, then promote artefact
 ##############################################################################
 - id: promote-if-pass
   name: gcr.io/cloud-builders/gsutil
@@ -61,25 +61,23 @@ steps:
     - -ceu
     - |
       echo "🚦 waiting for sandbox SMOKE_PASS …"
-      for n in {1..30}; do
-        if gsutil cat ${_DEPLOY_BUCKET}/SMOKE_PASS 2>/dev/null | grep -q "${SHORT_SHA}"; then
-          echo "✅ sandbox passed – promoting"
-          gsutil cp ${_DEPLOY_BUCKET}/latest.tgz       ${_DEPLOY_BUCKET}/latest.tgz-prod
-          echo "${SHORT_SHA}" | gsutil cp -            ${_DEPLOY_BUCKET}/VERSION-prod
+      for i in {1..30}; do       # ~5 minutes max
+        if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA"; then
+          echo "✅ sandbox passed – promoting artefact"
+          gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
+          printf 'prod-OK %s\n' "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/PROD_PASS
           exit 0
         fi
         sleep 10
       done
-      echo "🛑 sandbox did not approve within 5 min"
-      exit 1
+      echo "🛑 sandbox did not approve in time"; exit 1
 
 ##############################################################################
-# 3  Run auto-maintenance script & push (uses GITHUB_PAT secret)
+# 3 .  Run auto-maintenance script and push any resulting commits
 ##############################################################################
 - id: make-and-commit-changes
   name: python:3.11-slim
   waitFor: ['promote-if-pass']
-  secretEnv: ['GITHUB_PAT']
   entrypoint: bash
   env:
     - GIT_AUTHOR_NAME=cloudbuild
@@ -89,28 +87,23 @@ steps:
   args:
     - -ceu
     - |
-      echo "🤖 running auto-maintenance …"
+      echo "🔧 running auto-maintenance …"
       pip install --quiet --no-cache-dir -r scripts/requirements-auto.txt
       ./scripts/auto-maintain.sh
 
       if ! git diff --quiet; then
-        echo "📑 committing generated changes …"
-        git config --global --add safe.directory /workspace
+        echo "✍️ committing generated changes …"
+        git config --global init.defaultBranch main
+        git config --global user.name  "$GIT_AUTHOR_NAME"
+        git config --global user.email "$GIT_AUTHOR_EMAIL"
         git add -A
-        git commit -m "ci: automated maintenance by Cloud Build (${SHORT_SHA})"
-        git push "https://${GITHUB_PAT}:x-oauth-basic@github.com/${REPO_FULL_NAME}.git" HEAD:main
+        git commit -m "chore(auto): automated maintenance on $SHORT_SHA" || true
+        echo "🚀 pushing commit back to GitHub …"
+        # double-$ so Cloud Build doesn’t try to substitute
+        git push "https://$${GITHUB_PAT}:x-oauth-basic@github.com/$${REPO_FULL_NAME}.git" HEAD:main
       else
-        echo "✨ nothing to commit"
+        echo "✅ nothing to commit"
       fi
 
 # ---------------------------------------------------------------------------
-# No container images produced
-# ---------------------------------------------------------------------------
-images: []
-
-# ---------------------------------------------------------------------------
-# Handy custom substitutions
-# ---------------------------------------------------------------------------
-substitutions:
-  _DEPLOY_BUCKET: gs://grayst0-deploy
-  _PY_VERSION: "3.11"
+images: []   # this pipeline does not publish container images
