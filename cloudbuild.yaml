@@ -36,7 +36,7 @@ steps:
       TAR=/tmp/latest.tgz
       tar -czf "$$TAR" --exclude=.git .
       gsutil cp "$$TAR"          gs://grayst0-deploy/latest.tgz
-      echo "$$SHORT_SHA" > /tmp/VERSION
+      echo "${SHORT_SHA}" > /tmp/VERSION
       gsutil cp /tmp/VERSION    gs://grayst0-deploy/VERSION
 # 2 ───────────────────────────────────────────────────────────────────────────
 - id: promote-if-pass
