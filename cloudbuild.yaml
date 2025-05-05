@@ -68,7 +68,7 @@ steps:
   waitFor: ['promote-if-pass']
   entrypoint: bash
   env:
-        - GITHUB_PAT=$$GITHUB_PAT
+    - GITHUB_PAT=$$GITHUB_PAT
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
     - GIT_COMMITTER_NAME=cloudbuild
