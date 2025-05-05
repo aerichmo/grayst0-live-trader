@@ -13,7 +13,8 @@ steps:
 - id: build-and-test
   name: python:3.11-slim
   entrypoint: bash
-  args: [ -ceu, |
+  args: [ -ceu
+      |
       echo "📦 installing deps …"
       pip install --quiet pytest requests pyyaml -r requirements.txt
       echo "🧪 running smoke tests …"
@@ -24,7 +25,8 @@ steps:
   name: gcr.io/cloud-builders/gsutil
   waitFor: [build-and-test]
   entrypoint: bash
-  args: [ -ceu, |
+  args: [ -ceu
+      |
       echo "📦 archiving workspace …"
       TAR=/tmp/latest.tgz
       tar -czf "$$TAR" --exclude=.git .
@@ -37,7 +39,8 @@ steps:
   name: gcr.io/cloud-builders/gsutil
   waitFor: [pack-and-upload]
   entrypoint: bash
-  args: [ -ceu, |
+  args: [ -ceu
+      |
       echo "🚦 waiting for sandbox SMOKE_PASS …"
       for i in {1..30}; do
         if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null \
