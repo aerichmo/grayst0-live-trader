@@ -30,7 +30,7 @@ steps:
   waitFor: ['build-and-test']
   entrypoint: bash
   args:
-    - -euoc
+    - -ceu
     - |
       echo "📦 archiving workspace …"
       TAR=/tmp/latest.tgz
