@@ -84,7 +84,7 @@ steps:
     - -ceu
     - |
       echo "🛠️  running auto-maintenance …"
-      export GITHUB_TOKEN="$GITHUB_PAT"
+      export GITHUB_TOKEN="$$GITHUB_PAT"
       pip install --quiet -r scripts/requirements-auto.txt
       ./scripts/auto-maintain.sh
       echo "🚀 auto-maintenance finished"
