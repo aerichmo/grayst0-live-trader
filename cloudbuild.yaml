@@ -78,7 +78,7 @@ steps:
     - -ceu
     - |
       echo "🛠️ running auto‑maintenance …"
-      export GITHUB_TOKEN="$GITHUB_PAT"   # token for gh cli / git pushes
+      export GITHUB_TOKEN="$$GITHUB_PAT"   # token for gh cli / git pushes
       pip install --quiet -r scripts/requirements-auto.txt
       ./scripts/auto-maintain.sh
 images: []
