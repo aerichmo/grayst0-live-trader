@@ -68,8 +68,8 @@ steps:
   name: python:3.11-slim
   waitFor: ['promote-if-pass']
   entrypoint: bash
+  secretEnv: ["GITHUB_PAT"]
   env:
-    - GITHUB_PAT=$$GITHUB_PAT
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
     - GIT_COMMITTER_NAME=cloudbuild
@@ -78,7 +78,7 @@ steps:
     - -ceu
     - |
       echo "🛠️ running auto‑maintenance …"
-      export GITHUB_TOKEN="$$GITHUB_PAT"   # token for gh cli / git pushes
+      export GITHUB_TOKEN="$GITHUB_PAT"   # token for gh cli / git pushes
       pip install --quiet -r scripts/requirements-auto.txt
       ./scripts/auto-maintain.sh
 images: []
