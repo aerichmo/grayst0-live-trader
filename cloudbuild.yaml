@@ -68,7 +68,7 @@ steps:
   name: python:3.11-slim
   waitFor: ['promote-if-pass']
 
-  # inject the secret as $GITHUB_PAT
+  # inject the secret as $$GITHUB_PAT
   secretEnv: ['GITHUB_PAT']
 
   env:
@@ -82,6 +82,6 @@ steps:
     - -ceu
     - |
         echo "🛠️  running auto-maintenance …"
-        export GITHUB_TOKEN="$GITHUB_PAT"   # gh / git pushes
+        export GITHUB_TOKEN="$$GITHUB_PAT"   # gh / git pushes
         pip install --quiet -r scripts/requirements-auto.txt
         ./scripts/auto-maintain.sh
