@@ -1,58 +1,59 @@
-# ---------------------------------------------------------------------------
-# Cloud Build pipeline for grayst0-live-trader  — fully self-healing
-# ---------------------------------------------------------------------------
+###############################################################################
+# Cloud Build pipeline · grayst0-live-trader
+###############################################################################
 
-# 1 ╱ store raw-text logs in the dedicated bucket
-logsBucket: gs://grayst0-build-logs-1746335095
+logsBucket: gs://grayst0-build-logs-1746335095      # centralised build logs
 
-# 2 ╱ unknown _SUBSTITUTIONS shouldn’t fail the build
 options:
-  substitutionOption: ALLOW_LOOSE
+  substitutionOption: ALLOW_LOOSE                  # ignore unknown _VARS
 
-# 3 ╱ inject the GitHub Personal-Access-Token so we can push commits
+###############################################################################
+# make the Secret Manager token (GITHUB_PAT) available to later steps
+###############################################################################
 availableSecrets:
   secretManager:
-    - versionName: projects/$PROJECT_NUMBER/secrets/GITHUB_PAT/versions/latest
-      env: GITHUB_PAT          # becomes $GITHUB_PAT inside steps
+    - versionName: projects/$(PROJECT_ID)/secrets/GITHUB_PAT/versions/latest
+      env: GITHUB_PAT                                # injected as $GITHUB_PAT
 
-# ---------------------------------------------------------------------------
-# Build Steps
-# ---------------------------------------------------------------------------
+###############################################################################
+# STAGES
+###############################################################################
 steps:
 
-##############################################################################
-# 0 .  Run smoke tests in a clean Python 3.11 image
-##############################################################################
+# ─────────────────────────────────────────────────────────────────────────────
+# 0 - Smoke-test in a clean Python 3.11 image
+# ─────────────────────────────────────────────────────────────────────────────
 - id: build-and-test
   name: python:3.11-slim
   entrypoint: bash
   args:
     - -ceu
     - |
-      echo "📦 installing deps …"
+      echo "📦  installing deps …"
       pip install --quiet --no-cache-dir pytest requests pyyaml -r requirements.txt
       echo "🧪 running smoke tests …"
-      python -m pytest -q tests/smoke/
+      pytest -q tests/smoke
 
-##############################################################################
-# 1 .  Archive workspace → grayst0-deploy (latest.tgz + VERSION)
-##############################################################################
+# ─────────────────────────────────────────────────────────────────────────────
+# 1 - Archive workspace → grayst0-deploy bucket
+# ─────────────────────────────────────────────────────────────────────────────
 - id: pack-and-upload
   name: gcr.io/cloud-builders/gsutil
+  waitFor: ['build-and-test']
   entrypoint: bash
   args:
     - -ceu
     - |
-      echo "📦 archiving workspace …"
+      echo "📦  archiving workspace …"
       TMPFILE="/tmp/latest.tgz"
-      tar -czf "$TMPFILE" --exclude=.git .
-      gsutil cp "$TMPFILE" gs://grayst0-deploy/latest.tgz
-      echo "$COMMIT_SHA" > /tmp/VERSION
+      tar -czf "$$TMPFILE" --exclude=.git .
+      gsutil cp "$$TMPFILE" gs://grayst0-deploy/latest.tgz
+      printf '%s\n' "$SHORT_SHA" > /tmp/VERSION
       gsutil cp /tmp/VERSION gs://grayst0-deploy/VERSION
 
-##############################################################################
-# 2 .  Wait for sandbox VM to emit SMOKE_PASS, then promote artefact
-##############################################################################
+# ─────────────────────────────────────────────────────────────────────────────
+# 2 - Wait for the sandbox updater to emit SMOKE_PASS, then promote
+# ─────────────────────────────────────────────────────────────────────────────
 - id: promote-if-pass
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['pack-and-upload']
@@ -61,21 +62,24 @@ steps:
     - -ceu
     - |
       echo "🚦 waiting for sandbox SMOKE_PASS …"
-      for i in {1..30}; do       # ~5 minutes max
-        if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA"; then
-          echo "✅ sandbox passed – promoting artefact"
-          gsutil cp gs://grayst0-deploy/latest.tgz gs://grayst0-deploy/latest.tgz-prod
-          printf 'prod-OK %s\n' "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/PROD_PASS
-          exit 0
-        fi
+      for attempt in {1..30}; do
+        gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA" && break
         sleep 10
       done
-      echo "🛑 sandbox did not approve in time"; exit 1
 
-##############################################################################
-# 3 .  Run auto-maintenance script and push any resulting commits
-##############################################################################
-- id: make-and-commit-changes
+      if gsutil cat gs://grayst0-deploy/SMOKE_PASS 2>/dev/null | grep -q "$SHORT_SHA"; then
+        echo "✅ sandbox passed – promoting to prod artefact"
+        gsutil cp gs://grayst0-deploy/latest.tgz   gs://grayst0-deploy/latest.tgz-prod
+        printf 'prod-OK %s\n' "$SHORT_SHA" | gsutil cp - gs://grayst0-deploy/PROD_PASS
+      else
+        echo "🛑 sandbox did not approve within 5 min"
+        exit 1
+      fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3 - Run auto-maintenance script → auto-commit back to main
+# ─────────────────────────────────────────────────────────────────────────────
+- id: auto-maintain-and-commit
   name: python:3.11-slim
   waitFor: ['promote-if-pass']
   entrypoint: bash
@@ -84,26 +88,14 @@ steps:
     - GIT_AUTHOR_EMAIL=ci@grayst0
     - GIT_COMMITTER_NAME=cloudbuild
     - GIT_COMMITTER_EMAIL=ci@grayst0
+    - GITHUB_TOKEN=$(GITHUB_PAT)          # provided by availableSecrets
   args:
     - -ceu
     - |
-      echo "🔧 running auto-maintenance …"
-      pip install --quiet --no-cache-dir -r scripts/requirements-auto.txt
+      echo "🛠️  running auto-maintenance …"
+      pip install --quiet -r scripts/requirements-auto.txt
       ./scripts/auto-maintain.sh
 
-      if ! git diff --quiet; then
-        echo "✍️ committing generated changes …"
-        git config --global init.defaultBranch main
-        git config --global user.name  "$GIT_AUTHOR_NAME"
-        git config --global user.email "$GIT_AUTHOR_EMAIL"
-        git add -A
-        git commit -m "chore(auto): automated maintenance on $SHORT_SHA" || true
-        echo "🚀 pushing commit back to GitHub …"
-        # double-$ so Cloud Build doesn’t try to substitute
-        git push "https://$${GITHUB_PAT}:x-oauth-basic@github.com/$${REPO_FULL_NAME}.git" HEAD:main
-      else
-        echo "✅ nothing to commit"
-      fi
-
-# ---------------------------------------------------------------------------
-images: []   # this pipeline does not publish container images
+###############################################################################
+images: []   # this pipeline does not push container images
+###############################################################################
