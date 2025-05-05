@@ -20,7 +20,7 @@ steps:
 # ──────────────────────────────────────────────────────────────────────────────
 - id: build-and-test
   name: python:3.11-slim
-  entrypoint: bash
+  entrypoint:
   args:
     - -ceu
     - |
@@ -33,7 +33,7 @@ steps:
 - id: pack-and-upload
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['build-and-test']
-  entrypoint: bash
+  entrypoint:
   args:
     - -ceu
     - |
@@ -47,7 +47,7 @@ steps:
 - id: promote-if-pass
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['pack-and-upload']
-  entrypoint: bash
+  entrypoint:
   args:
     - -ceu
     - |
@@ -67,16 +67,15 @@ steps:
 - id: make-and-commit-changes
   name: python:3.11-slim
   waitFor: ['promote-if-pass']
-  entrypoint: bash
+  entrypoint:
   env:
-    - GITHUB_PAT=$$GITHUB_PAT
+  - GITHUB_PAT=$$GITHUB_PAT
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
     - GIT_COMMITTER_NAME=cloudbuild
     - GIT_COMMITTER_EMAIL=ci@grayst0
   args:
     - -ceu
-    - -c
     - |
       echo "🛠️ running auto‑maintenance …"
       export GITHUB_TOKEN="$$GITHUB_PAT"   # token for gh cli / git pushes
