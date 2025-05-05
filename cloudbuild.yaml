@@ -20,7 +20,7 @@ steps:
 # ──────────────────────────────────────────────────────────────────────────────
 - id: build-and-test
   name: python:3.11-slim
-  entrypoint:
+  entrypoint: bash
   args:
     - -ceu
     - |
@@ -33,7 +33,7 @@ steps:
 - id: pack-and-upload
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['build-and-test']
-  entrypoint:
+  entrypoint: bash
   args:
     - -ceu
     - |
@@ -47,7 +47,7 @@ steps:
 - id: promote-if-pass
   name: gcr.io/cloud-builders/gsutil
   waitFor: ['pack-and-upload']
-  entrypoint:
+  entrypoint: bash
   args:
     - -ceu
     - |
@@ -67,7 +67,7 @@ steps:
 - id: make-and-commit-changes
   name: python:3.11-slim
   waitFor: ['promote-if-pass']
-  entrypoint:
+  entrypoint: bash
   env:
     - GITHUB_PAT=$$GITHUB_PAT
     - GIT_AUTHOR_NAME=cloudbuild
