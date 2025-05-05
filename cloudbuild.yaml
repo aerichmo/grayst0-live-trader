@@ -17,14 +17,13 @@ steps:
   name: python:3.11-slim
   entrypoint: bash
   args:
-    # BEFORE  ▸   - -euoc
-    # AFTER   ▸   - -ceu        # -c executes the following here-doc
+    - -ceu
     - |
-      set -euo pipefail
-      echo "📦 installing deps …"
-      pip install --quiet pytest requests pyyaml -r requirements.txt
-      echo "🧪 running smoke tests …"
-      python -m pytest -q tests/smoke
+        set -euo pipefail
+        echo "📦 installing deps …"
+        pip install --quiet pytest requests pyyaml -r requirements.txt
+        echo "🧪 running smoke tests …"
+        python -m pytest -q tests/smoke
 # 1 ───────────────────────────────────────────────────────────────────────────
 - id: pack-and-upload
   name: gcr.io/cloud-builders/gsutil
