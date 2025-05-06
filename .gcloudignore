@@ -1,17 +1,7 @@
-# ───────────────────────────────
-# Keep the Git repository so the
-# auto-maintenance step can commit
-# ───────────────────────────────
-!/.git/**
+# ── keep the entire repository (including .git) ──
+# (no exclude rules before this point)
 
-# Include everything else by default …
-**/*
-
-# … and then re-apply Google’s standard ignores
-# (copy-pasted from `gcloud topic gcloudignore`)
-.git
-.git/**/objects/**
-.git/**/refs/**
+# ── optional: ignore local OS/editor junk ──
 *~
 *.swp
 .DS_Store
