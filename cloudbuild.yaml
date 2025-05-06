@@ -60,13 +60,15 @@ steps:
 
 # 3 ───────────────────────────────────────────────────────────────────────────
 - id: make-and-commit-changes
-  name: python:3.11                    # full Debian image → apt & pip both exist
   waitFor: ["promote-if-pass"]
 
-  # inject the secret as $GITHUB_PAT (escaped inside the script)
+  # a full Debian image → has pip & apt
+  name: python:3.11
+
+  # secret shows up inside as $GITHUB_PAT
   secretEnv: ["GITHUB_PAT"]
 
-  # static env vars (plain strings → not substituted)
+  # static identity for the commits the bot may push
   env:
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
@@ -79,7 +81,7 @@ steps:
     - |
       echo "🛠️  running auto-maintenance …"
 
-      # ── minimal tools we need (curl + git + gh) ───────────────────────────
+      # ── minimal tools we need ─────────────────────────────────────────────
       apt-get update -qq
       apt-get install -y --no-install-recommends \
         curl ca-certificates gnupg git
@@ -93,13 +95,15 @@ steps:
       apt-get update -qq
       apt-get install -y --no-install-recommends gh
 
-      # ── set up Git identity & token ───────────────────────────────────────
+      # ── set up Git credentials ───────────────────────────────────────────
       git config --global user.name  "$$GIT_AUTHOR_NAME"
       git config --global user.email "$$GIT_AUTHOR_EMAIL"
       echo "https://$$GITHUB_PAT:@github.com" > $$HOME/.git-credentials
       git config --global credential.helper store
 
-      # ── run the maintenance helper inside the cloned workspace ────────────
-      cd "$$BUILD_WORKSPACE_DIRECTORY"
+      # ── workspace is always /workspace in Cloud Build ────────────────────
+      cd /workspace
+
+      # ── run the formatter / auto-maintainer ──────────────────────────────
       pip install --quiet --upgrade black isort ruamel.yaml
       ./scripts/auto-maintain.sh
