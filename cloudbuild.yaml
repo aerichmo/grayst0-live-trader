@@ -4,7 +4,7 @@
 availableSecrets:
   secretManager:
     - versionName: projects/999946030108/secrets/GITHUB_PAT/versions/latest
-      env: GITHUB_PAT            # becomes $GITHUB_PAT inside any step
+      env: GITHUB_PAT
 
 logsBucket: gs://grayst0-build-logs
 options: { substitutionOption: ALLOW_LOOSE }
@@ -77,6 +77,6 @@ steps:
           > /etc/apt/sources.list.d/github-cli.list
         apt-get update -qq && apt-get install -y gh
 
-        export GITHUB_TOKEN="$GITHUB_PAT"
+        export GITHUB_TOKEN="$$GITHUB_PAT"
         pip install --quiet -r scripts/requirements-auto.txt
         ./scripts/auto-maintain.sh
