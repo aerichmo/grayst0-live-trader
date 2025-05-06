@@ -33,7 +33,7 @@ steps:
     - |
         echo "📦 archiving workspace …"
         TAR=/tmp/latest.tgz
-        tar -czf "$${TAR}" --exclude=.git .
+        tar -czf "$$TAR" .
         gsutil cp "$${TAR}" gs://grayst0-deploy/latest.tgz
         echo "${SHORT_SHA}" > /tmp/VERSION
         gsutil cp /tmp/VERSION gs://grayst0-deploy/VERSION
