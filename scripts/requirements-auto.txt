@@ -1,0 +1,5 @@
+# packages the auto-maintenance step needs
+PyGithub==2.3.0        # GitHub API client
+ruamel.yaml==0.18.6    # YAML editing
+black==24.2.0          # code formatter
+isort==5.13.2          # import sorter
