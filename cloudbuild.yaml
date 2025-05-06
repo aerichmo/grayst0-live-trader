@@ -60,7 +60,7 @@ steps:
 
 # ───────────── 3 — auto-maintenance commit pushed via PAT ───────────────────
 - id: make-and-commit-changes
-  name: gcr.io/cloud-builders/git
+  name: gcr.io/cloud-builders/gcloud
   waitFor: [promote-if-pass]
   secretEnv: [GITHUB_PAT]          # injected from Secret Manager
   env:
