@@ -60,7 +60,7 @@ steps:
 
 # 3 ───────────────────────────────────────────────────────────────────────────
 - id: make-and-commit-changes
-  name: python:3.11-slim        # ← only this image line!
+  name: python:3.11
   waitFor: ['promote-if-pass']
   secretEnv: ['GITHUB_PAT']     # keeps the PAT injection
 
