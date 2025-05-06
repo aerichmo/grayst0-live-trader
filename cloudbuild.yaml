@@ -60,9 +60,9 @@ steps:
 
 # 3 ───────────────────────────────────────────────────────────────────────────
 - id: make-and-commit-changes
-  name: gcr.io/cloud-builders/git        # git is pre-installed; we’ll add gh
+  name: gcr.io/cloud-builders/git          # git + bash already present
   waitFor: ['promote-if-pass']
-  secretEnv: ["GITHUB_PAT"]              # inject the token at runtime
+  secretEnv: ["GITHUB_PAT"]                # inject the secret
   env:
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
@@ -74,7 +74,7 @@ steps:
     - |
         echo "🛠️  running auto-maintenance …"
 
-        # ---- install GitHub CLI (gh) -------------------------------
+        # ---- install GitHub CLI (gh) -----------------------------------
         apt-get -qq update
         apt-get -qq install -y curl gnupg ca-certificates
         curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -84,9 +84,10 @@ steps:
           > /etc/apt/sources.list.d/github-cli.list
         apt-get -qq update
         apt-get -qq install -y gh
-        # ------------------------------------------------------------
+        # ----------------------------------------------------------------
 
-        export GITHUB_TOKEN="$GITHUB_PAT"
-        git config --global url."https://$GITHUB_PAT@github.com/".insteadOf "https://github.com/"
+        # set token for gh + git, **escaped with $$ to avoid Cloud-Build substitutions**
+        export GITHUB_TOKEN="$$GITHUB_PAT"
+        git config --global url."https://$$GITHUB_PAT@github.com/".insteadOf "https://github.com/"
 
         ./scripts/auto-maintain.sh
