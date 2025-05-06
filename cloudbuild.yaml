@@ -60,38 +60,46 @@ steps:
 
 # 3 ───────────────────────────────────────────────────────────────────────────
 - id: make-and-commit-changes
-  name: python:3.11
+  name: python:3.11                    # full Debian image → apt & pip both exist
   waitFor: ["promote-if-pass"]
-  secretEnv: ["GITHUB_PAT"]                    # injects $GITHUB_PAT for this step
+
+  # inject the secret as $GITHUB_PAT (escaped inside the script)
+  secretEnv: ["GITHUB_PAT"]
+
+  # static env vars (plain strings → not substituted)
   env:
     - GIT_AUTHOR_NAME=cloudbuild
     - GIT_AUTHOR_EMAIL=ci@grayst0
     - GIT_COMMITTER_NAME=cloudbuild
     - GIT_COMMITTER_EMAIL=ci@grayst0
+
   entrypoint: bash
   args:
     - -ceu
     - |
       echo "🛠️  running auto-maintenance …"
 
-      # ── install gh CLI (needed for `gh pr` etc.) ───────────────────────────
+      # ── minimal tools we need (curl + git + gh) ───────────────────────────
       apt-get update -qq
-      apt-get install -y --no-install-recommends curl ca-certificates gnupg git
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
-        dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-      echo "deb [arch=$(dpkg --print-architecture) \
+      apt-get install -y --no-install-recommends \
+        curl ca-certificates gnupg git
+
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$$(dpkg --print-architecture) \
         signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
         https://cli.github.com/packages stable main" \
-        | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        > /etc/apt/sources.list.d/github-cli.list
       apt-get update -qq
       apt-get install -y --no-install-recommends gh
 
-      # ── set up Git credentials ────────────────────────────────────────────
-      git config --global user.name  "$GIT_AUTHOR_NAME"
-      git config --global user.email "$GIT_AUTHOR_EMAIL"
-      echo "https://$GITHUB_PAT:@github.com" > ~/.git-credentials
+      # ── set up Git identity & token ───────────────────────────────────────
+      git config --global user.name  "$$GIT_AUTHOR_NAME"
+      git config --global user.email "$$GIT_AUTHOR_EMAIL"
+      echo "https://$$GITHUB_PAT:@github.com" > $$HOME/.git-credentials
       git config --global credential.helper store
 
-      # ── run the maintenance script ────────────────────────────────────────
-      cd "$$BUILD_WORKSPACE_DIRECTORY"        # inside the cloned repo
+      # ── run the maintenance helper inside the cloned workspace ────────────
+      cd "$$BUILD_WORKSPACE_DIRECTORY"
+      pip install --quiet --upgrade black isort ruamel.yaml
       ./scripts/auto-maintain.sh
