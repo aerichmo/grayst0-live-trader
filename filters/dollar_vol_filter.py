@@ -1,15 +1,22 @@
-import os, requests, datetime, logging
+import datetime
+import logging
+import os
+
+import requests
+
 LOG = logging.getLogger("Filter.DollarVol")
+
 
 def passes(symbol):
     key = os.getenv("POLYGON_API_KEY")
     if not key:
-        LOG.error("POLYGON_API_KEY missing"); return False
+        LOG.error("POLYGON_API_KEY missing")
+        return False
 
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     r = requests.get(
         f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/5/minute/{today}/{today}",
-        params={"adjusted":"true","limit":"1","apiKey": key},
+        params={"adjusted": "true", "limit": "1", "apiKey": key},
         timeout=4,
     )
     r.raise_for_status()
