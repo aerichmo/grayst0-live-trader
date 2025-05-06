@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+set -euxo pipefail      # <- add the   -x   (trace)
+#!/usr/bin/env bash
 set -euo pipefail
 
 echo "🔧 auto‑maintenance started …"
