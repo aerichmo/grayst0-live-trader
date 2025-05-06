@@ -58,31 +58,25 @@ steps:
         done
         echo "🛑 sandbox did not approve in time"; exit 1
 
-# 3 ─ Auto-maintenance (needs pip) ─────────────────────────────
+# 3 ───────────────────────────────────────────────────────────────────────────
 - id: make-and-commit-changes
-  name: python:3.11-slim          # pip is available here
+  name: python:3.11-slim        # ← only this image line!
   waitFor: ['promote-if-pass']
-  secretEnv: ['GITHUB_PAT']       # PAT arrives as env var
+  secretEnv: ['GITHUB_PAT']     # keeps the PAT injection
+
   entrypoint: bash
   args:
     - -ceu
     - |
-      echo "🛠️  running auto-maintenance …"
+        echo "🛠️  running auto-maintenance …"
+        # GitHub CLI already installed in this snippet
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+          | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
+          https://cli.github.com/packages stable main" \
+          > /etc/apt/sources.list.d/github-cli.list
+        apt-get update -qq && apt-get install -y gh
 
-      # tools required by auto-maintain.sh
-      apt-get update -qq
-      apt-get install -y --no-install-recommends git curl >/dev/null
-
-      # GitHub CLI (needed by the script)
-      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-      echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
-        https://cli.github.com/packages stable main" \
-        > /etc/apt/sources.list.d/github-cli.list
-      apt-get update -qq
-      apt-get install -y gh >/dev/null
-
-      export GITHUB_TOKEN="$GITHUB_PAT"   # auth for gh & git
-
-      pip install --quiet -r scripts/requirements-auto.txt
-      ./scripts/auto-maintain.sh
+        export GITHUB_TOKEN="$GITHUB_PAT"
+        pip install --quiet -r scripts/requirements-auto.txt
+        ./scripts/auto-maintain.sh
