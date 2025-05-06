@@ -58,25 +58,49 @@ steps:
         done
         echo "🛑 sandbox did not approve in time"; exit 1
 
-# 3 ───────────────────────────────────────────────────────────────────────────
-- id: make-and-commit-changes
-  name: python:3.11
-  waitFor: ['promote-if-pass']
-  secretEnv: ['GITHUB_PAT']     # keeps the PAT injection
-
+    - GIT_COMMITTER_EMAIL=ci@grayst0
   entrypoint: bash
   args:
     - -ceu
     - |
-        echo "🛠️  running auto-maintenance …"
-        # GitHub CLI already installed in this snippet
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-          | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
-          https://cli.github.com/packages stable main" \
-          > /etc/apt/sources.list.d/github-cli.list
-        apt-get update -qq && apt-get install -y gh
+      echo "🛠️  running auto-maintenance …"
 
-        export GITHUB_TOKEN="$$GITHUB_PAT"
-        pip install --quiet -r scripts/requirements-auto.txt
-        ./scripts/auto-maintain.sh
+      # ── ensure we’re at the repo root inside Cloud Build ───────────────
+      cd "$BUILD_WORKSPACE_DIRECTORY"
+
+      # ── lightweight install of GH CLI (needed for gh pr create, etc.) ──
+      apt-get update -qq
+      apt-get install -y -qq curl git gnupg
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      echo "deb [arch=$(dpkg --print-architecture) \
+            signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
+            https://cli.github.com/packages stable main" \
+        | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+      apt-get update -qq
+      apt-get install -y -qq gh
+
+      # ── set up the token for gh / git pushes ───────────────────────────
+      export GITHUB_TOKEN="$GITHUB_PAT"
+
+      # ── run the maintenance script (formatters, etc.) ──────────────────
+      echo "🔧 auto-maintenance started …"
+      pip install --quiet --upgrade black isort ruamel.yaml
+      black .       --quiet
+      isort .       --quiet
+
+      # ── commit & push any changes (create or update 'auto/*' PR) ───────
+      if [[ -n $(git status --porcelain) ]]; then
+        BRANCH="auto/format-$SHORT_SHA"
+        git checkout -b "$BRANCH"
+        git add -A
+        git commit -m "style: automated formatting ($SHORT_SHA)"
+        git push -u origin "$BRANCH"
+
+        gh pr create --title "chore: auto-format ($SHORT_SHA)" \
+                     --body  "Automated style fixes by Cloud Build" \
+                     --head "$BRANCH" --base main \
+                     --label "automation"
+      else
+        echo "✅ nothing to fix"
+      fi
