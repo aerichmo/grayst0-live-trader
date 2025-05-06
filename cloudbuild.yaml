@@ -62,34 +62,30 @@ steps:
 - id: make-and-commit-changes
   name: python:3.11
   waitFor: ['promote-if-pass']
-  secretEnv: ['GITHUB_PAT']           # GITHUB_PAT comes from availableSecrets⭡
+  secretEnv: ['GITHUB_PAT']
   entrypoint: bash
   args:
     - -ceu
     - |
       echo "🛠️  running auto-maintenance …"
 
-      # minimal tooling we need
       apt-get update -qq \
         && apt-get install -y --no-install-recommends curl gnupg git
 
-      # python formatters / sorters
       pip install --quiet --upgrade black isort ruamel.yaml
 
-      # run the formatters
-      black .   --quiet
-      isort .   --quiet
+      black . --quiet
+      isort . --quiet
 
-      # commit & push if anything changed
       if [[ -n "$(git status --porcelain)" ]]; then
         echo "📄 committing code-style fixes"
         git config --global --add safe.directory /workspace
         git config user.name  "cloudbuild-bot"
         git config user.email "ci@grayst0"
 
-        # replace SSH remote with HTTPS remote that contains the PAT
+        # NOTE the double $ to stop Cloud Build substitution
         git remote set-url origin \
-          "https://${GITHUB_PAT}@github.com/aerichmo/grayst0-live-trader.git"
+          "https://$${GITHUB_PAT}@github.com/aerichmo/grayst0-live-trader.git"
 
         git add -A
         git commit -m "style: automated formatting by Cloud Build"
